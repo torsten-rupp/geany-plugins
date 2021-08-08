@@ -165,6 +165,7 @@ Section Uninstall
 	Delete "$INSTDIR\lib\geany\addons.dll"
 	Delete "$INSTDIR\lib\geany\autoclose.dll"
 	Delete "$INSTDIR\lib\geany\automark.dll"
+	Delete "$INSTDIR\lib\geany\builder.dll"
 	Delete "$INSTDIR\lib\geany\codenav.dll"
 	Delete "$INSTDIR\lib\geany\commander.dll"
 	Delete "$INSTDIR\lib\geany\defineformat.dll"

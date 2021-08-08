@@ -19,6 +19,10 @@ if ENABLE_AUTOMARK
 SUBDIRS += automark
 endif
 
+if ENABLE_BUILDER
+SUBDIRS += builder
+endif
+
 if ENABLE_CODENAV
 SUBDIRS += codenav
 endif

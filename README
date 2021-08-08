@@ -55,6 +55,7 @@ Available plugins are:
 * ``addons`` -- the Addons plugin
 * ``autoclose`` -- the Autoclose plugin
 * ``automark`` -- the Automark plugin
+* ``builder`` -- the Builder plugin
 * ``codenav`` -- the CodeNav plugin
 * ``commander`` -- the Commander plugin
 * ``debugger`` -- the Debugger plugin
@@ -131,4 +132,3 @@ The Geany Plugins project uses a recursive Automake build system,
 which means that after running ``./configure``, you may compile each
 individual plugin by cd-ing into the respective plugin directory
 and running make inside it.
-
