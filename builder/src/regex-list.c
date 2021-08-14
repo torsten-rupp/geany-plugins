@@ -1,0 +1,20 @@
+struct { const gchar *language; const gchar *group; RegExTypes type; const gchar *regex; } REGEX_BUILTIN[] =
+{
+  { "C", "gcc", REGEX_TYPE_ERROR, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\\s*error:\\s*(?<message>.*)$" },
+  { "C", "gcc", REGEX_TYPE_WARNING, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\\s*warning:\\s*(?<message>.*)$" },
+  { "C", "clang", REGEX_TYPE_ERROR, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\\s*error:\\s*(?<message>.*)$" },
+  { "C++", "gcc", REGEX_TYPE_ERROR, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\\s*error:\\s*(?<message>.*)$" },
+  { "C++", "gcc", REGEX_TYPE_WARNING, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\\s*warning:\\s*(?<message>.*)$" },
+  { "C++", "clang", REGEX_TYPE_ERROR, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\\s*error:\\s*(?<message>.*)$" },
+  { "Java", "javac", REGEX_TYPE_ERROR, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):\\s*error:\\s*(?<message>.*)$" },
+  { "Java", "javac", REGEX_TYPE_ERROR, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):\\s*warning:\\s*(?<message>.*)$" },
+  { "Make", "gmake", REGEX_TYPE_ENTER, "^.*Entering directory\\s+'(?<directory>[^']*)'\\s*$" },
+  { "Make", "gmake", REGEX_TYPE_LEAVE, "^.*Leaving directory\\s+'(?<directory>[^']*)'\\s*$" },
+  { "Perl", "perl", REGEX_TYPE_ERROR, "^syntax error at\\s+(?<filePath>.*)\\s+line\\s+(?<lineNumber>[0-9]+),\\s+(?<message>.*)" },
+  { "PHP", "php", REGEX_TYPE_ERROR, "^Parse error: parse error,\\s*(.*)\\s+in\\s+(?<filePath>.*)\\s+on line\\s+(?<lineNumber>[0-9]+)\\s+(?<message>.*)$" },
+  { "PHP", "php", REGEX_TYPE_ERROR, "^Parse error: syntax error,\\s*(.*)\\s+in\\s+(?<filePath>.*)\\s+on line\\s+(?<lineNumber>[0-9]+)\\s+(?<message>.*)$" },
+  { "", "", REGEX_TYPE_ENTER, "^\\s*Entering directory\\s+'(?<directory>[^']*)'\\s*$" },
+  { "", "", REGEX_TYPE_LEAVE, "^\\s*Leaving directory\\s+'(?<directory>[^']*)'\\s*$" },
+  { "", "", REGEX_TYPE_ERROR, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):\\s*warning:\\s*(?<message>.*)$" },
+  { "", "", REGEX_TYPE_WARNING, "^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\\s*warning:\\s*(?<message>.*)$" },
+};

@@ -1,0 +1,43 @@
+Builder plugin
+==============
+
+.. contents::
+
+About
+-----
+
+The builder plugin for Geany provides an alternative way to build
+a project. The plugin offer a set of toolbar buttons and toolbar
+menu to build, clean, run and stop a build process resp. the built
+application. Make and compiler output messages are parsed via
+definable regular expressions and shown in a list with erors and
+warnings.
+
+Features
+--------
+
+* toolbar build buttons
+* toolbar build menu
+* definable regular expressions for detecting errors and warnings
+* separated lists with errors and warnings from a build
+* keybindings
+* project and global configurations
+* configuration dialogs
+
+Usage
+-----
+
+Information about using a plugin:
+descriptions, use-cases, hotkeys lists,
+configuration, known bugs etc.
+
+Requirements
+------------
+
+* GTK >= 2.8.0
+* geany >= 1.37
+
+Contact developers
+------------------
+
+torsten.rupp@gmx.net

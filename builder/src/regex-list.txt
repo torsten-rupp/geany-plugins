@@ -1,0 +1,16 @@
+# GNU gcc
+gcc   enter     ^\s*Entering directory\s+'(?<directory>[^']*)'\s*$
+gcc   leave     ^\s*Leaving directory\s+'(?<directory>[^']*)'\s*$
+gcc   error     ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\s*error:\s*(?<message>.*)$
+gcc   warning   ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\s*warning:\s*(?<message>.*)$
+
+#gcc   fasdf   fasfda
+
+# clang
+clang error     ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\s*error:\s*(?<message>.*)$
+
+# Java
+javac enter     ^\s*Entering directory\s+'(?<directory>[^']*)'\s*$
+javac leave     ^\s*Leaving directory\s+'(?<directory>[^']*)'\s*$
+javac error     ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):\s*error:\s*(?<message>.*)$
+javac error     ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):\s*warning:\s*(?<message>.*)$
