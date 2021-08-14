@@ -4956,16 +4956,11 @@ G_MODULE_EXPORT void geany_load_module(GeanyPlugin *plugin)
 {
   static PluginCallback pluginCallbacks[] =
   {
-//        {"document-open", (GCallback) & on_doc_open, TRUE, NULL},
-//        {"document-activate", (GCallback) & on_doc_activate, TRUE, NULL},
-//        {"document-close", (GCallback) & on_doc_close, TRUE, NULL},
-//        {"build-start", (GCallback) & on_build_start, TRUE, NULL},
-    {"project-dialog-open", (GCallback) & onProjectDialogOpen, TRUE, NULL},
+    {"project-dialog-open",      (GCallback) & onProjectDialogOpen, TRUE, NULL},
     {"project-dialog-confirmed", (GCallback) & onProjectDialogConfirmed, TRUE, NULL},
-    {"project-dialog-close", (GCallback) & onProjectDialogClose, TRUE, NULL},
-        {"project-open", (GCallback) & onProjectOpen, TRUE, NULL},
-//        {"project-close", (GCallback) & on_project_close, TRUE, NULL},
-    {"project-save", (GCallback) & onProjectSave, TRUE, NULL},
+    {"project-dialog-close",     (GCallback) & onProjectDialogClose, TRUE, NULL},
+    {"project-open",             (GCallback) & onProjectOpen, TRUE, NULL},
+    {"project-save",             (GCallback) & onProjectSave, TRUE, NULL},
     {NULL, NULL, FALSE, NULL}
   };
 

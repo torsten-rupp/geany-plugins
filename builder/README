@@ -7,10 +7,10 @@ About
 -----
 
 The builder plugin for Geany provides an alternative way to build
-a project. The plugin offer a set of toolbar buttons and toolbar
+a project. The plugin offer a set of toolbar buttons and a toolbar
 menu to build, clean, run and stop a build process resp. the built
 application. Make and compiler output messages are parsed via
-definable regular expressions and shown in a list with erors and
+definable regular expressions and shown in a list with errors and
 warnings.
 
 Features
@@ -20,6 +20,7 @@ Features
 * toolbar build menu
 * definable regular expressions for detecting errors and warnings
 * separated lists with errors and warnings from a build
+* automatic save and show first error/warning
 * keybindings
 * project and global configurations
 * configuration dialogs
@@ -27,9 +28,107 @@ Features
 Usage
 -----
 
-Information about using a plugin:
-descriptions, use-cases, hotkeys lists,
-configuration, known bugs etc.
+Enable plugin:
+
+Enable the plugin in the menu Tools->Plugin Manager
+
+Configuration:
+
+There are two sections for configuration: global configuration which
+is used for all projects and a project specific configuration. The
+global configuration can be found either in the plugin preferences or
+via the toolbar button menu. The global configuration consists of:
+
+* definable commands to build, clena, make all, make custom target,
+  make object and run the application including an optional working
+  directory. The working directory may contain the following
+  placeholders:
+    %d current document directory
+    %e current document base name
+    %f current document file name
+    %p project base directory
+    %l current line number
+    %t custom target text
+
+* list of regular expressions to detect errors, warnings and
+  error/warnings extension messages. The regular expression may use
+  the following group names:
+    <filePath>     file path
+    <lineNumber>   line number
+    <columnNumber> column number
+    <message>      message
+
+  A regular expression have one of the following types assigned:
+    enter     identify when entering a sub-directory during the build
+    leave     identify when leaving a sub-directory during the build
+    error     identify an error during the build
+    warning   identify an warning during the build
+    extension identify an extension line for the last erorr or warning
+
+  The sample line in the edit regular expression dialog can be used to
+  past a sample output line to test if the entered regular expression
+  matches this line in the expected way. Note: the sample line and the
+  shown regular expression group results are not stored.
+
+  Matching lines of the build output are listed in the errors resp.
+  warnings tab and can be located in the corresponding document.
+
+* visible toolbar buttons to build, clean, run or stop
+
+* indicators and colors of indicators
+
+* checkboxes for auto save, add project regular expressions and show
+  first error or warning
+
+The project specific configuration consist of:
+
+* definable commands to build, clena, make all, make custom target,
+  make object and run the application including an optional working
+  directory. The working directory may contain the following
+  placeholders:
+    %d current document directory
+    %e current document base name
+    %f current document file name
+    %p project base directory
+    %l current line number
+    %t custom target text
+
+* additional error and warning regular expression
+
+Available key bindings:
+
+  Build
+  Clean
+  Make all
+  Make custom target
+  Make object
+  Show previous error
+  Show next error
+  Show previous warning
+  Show next warning
+  Run
+  Stop
+  Project properties
+  Plugin configuration
+
+Build:
+
+To build a project either press the "Build" button in the toolbar or
+select some specific build action from the menu. The toolbar button
+"Clean" usually do a clean action as defined in the command settings
+above. "Run" start the application, "Stop" terminate a running build
+action or stop the application.
+
+Locate errors and warnings:
+
+Detected errors and warnings and the raw build output are shown in
+the "Builder" tab. Detected errors and warnings can be located by
+clicking on the entries or via the defined short-cut keys.
+
+To edit or add a new error or warning detection regular expression
+entry a right-click on the corresponding line will open a context
+menu to edit or add a regular expression. For convenience the line
+is copied to the sample field in the regular expression dialog.
 
 Requirements
 ------------

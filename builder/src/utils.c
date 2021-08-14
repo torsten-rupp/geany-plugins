@@ -481,8 +481,7 @@ LOCAL void newDirectoryToolMenuOnPopupMenu(GtkButton *button, gpointer data)
  * @param [in]  data     entry widget
  */
 
-LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkWidget   *parent,
-                                                 GtkMenuItem *menuItem,
+LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkMenuItem *menuItem,
                                                  gpointer    data
                                                 )
 {
@@ -493,7 +492,7 @@ LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkWidget   *parent,
   UNUSED_VARIABLE(menuItem);
 
   GtkWidget *dialog = gtk_file_chooser_dialog_new(_("Select directory"),
-                                                  GTK_WINDOW(parent),
+                                                  GTK_WINDOW(gtk_widget_get_parent_window(GTK_WIDGET(menuItem))),
                                                   GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
                                                   _("_Cancel"),
                                                   GTK_RESPONSE_CANCEL,
@@ -515,13 +514,13 @@ LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkWidget   *parent,
 }
 
 /**
- * @brief select directory
+ * @brief current file directory
  *
  * @param [in]  menuItem button widget
  * @param [in]  data     entry widget
  */
 
-LOCAL void newDirectoryToolMenuOnFileDirectory(GtkMenuItem *menuItem,
+LOCAL void newDirectoryToolMenuOnCurrentFileDirectory(GtkMenuItem *menuItem,
                                                gpointer    data
                                               )
 {
@@ -535,7 +534,47 @@ LOCAL void newDirectoryToolMenuOnFileDirectory(GtkMenuItem *menuItem,
 }
 
 /**
- * @brief select directory
+ * @brief curent file basename
+ *
+ * @param [in]  menuItem button widget
+ * @param [in]  data     entry widget
+ */
+
+LOCAL void newDirectoryToolMenuOnCurrentFileBase(GtkMenuItem *menuItem,
+                                                 gpointer    data
+                                                )
+{
+  GtkEntry *entry = GTK_ENTRY(data);
+
+  g_assert(entry != NULL);
+
+  UNUSED_VARIABLE(menuItem);
+
+  gtk_entry_set_text(entry, "%e");
+}
+
+/**
+ * @brief current file name
+ *
+ * @param [in]  menuItem button widget
+ * @param [in]  data     entry widget
+ */
+
+LOCAL void newDirectoryToolMenuOnCurrentFile(GtkMenuItem *menuItem,
+                                             gpointer    data
+                                            )
+{
+  GtkEntry *entry = GTK_ENTRY(data);
+
+  g_assert(entry != NULL);
+
+  UNUSED_VARIABLE(menuItem);
+
+  gtk_entry_set_text(entry, "%f");
+}
+
+/**
+ * @brief project base directory
  *
  * @param [in]  menuItem button widget
  * @param [in]  data     entry widget
@@ -555,6 +594,46 @@ LOCAL void newDirectoryToolMenuOnProjectDirectory(GtkMenuItem *menuItem,
 }
 
 /**
+ * @brief current line number
+ *
+ * @param [in]  menuItem button widget
+ * @param [in]  data     entry widget
+ */
+
+LOCAL void newDirectoryToolMenuOnCurrentLineNumber(GtkMenuItem *menuItem,
+                                                   gpointer    data
+                                                  )
+{
+  GtkEntry *entry = GTK_ENTRY(data);
+
+  g_assert(entry != NULL);
+
+  UNUSED_VARIABLE(menuItem);
+
+  gtk_entry_set_text(entry, "%l");
+}
+
+/**
+ * @brief text
+ *
+ * @param [in]  menuItem button widget
+ * @param [in]  data     entry widget
+ */
+
+LOCAL void newDirectoryToolMenuOnText(GtkMenuItem *menuItem,
+                                      gpointer    data
+                                     )
+{
+  GtkEntry *entry = GTK_ENTRY(data);
+
+  g_assert(entry != NULL);
+
+  UNUSED_VARIABLE(menuItem);
+
+  gtk_entry_set_text(entry, "%t");
+}
+
+/**
  * @brief add directory select menu widget
  *
  * @param [in]  rootObject  root object
@@ -570,6 +649,9 @@ LOCAL GtkWidget *newDirectoryToolMenu(GObject     *rootObject,
                                       const gchar *tooltipText
                                      )
 {
+  g_assert(rootObject != NULL);
+  g_assert(entry != NULL);
+
   UNUSED_VARIABLE(rootObject);
   UNUSED_VARIABLE(entry);
 
@@ -596,7 +678,27 @@ LOCAL GtkWidget *newDirectoryToolMenu(GObject     *rootObject,
                             G_OBJECT(menuItem),
                             "activate",
                             FALSE,
-                            G_CALLBACK(newDirectoryToolMenuOnFileDirectory),
+                            G_CALLBACK(newDirectoryToolMenuOnCurrentFileDirectory),
+                            entry
+                           );
+
+      menuItem = gtk_menu_item_new_with_label("Current file base");
+      gtk_container_add(GTK_CONTAINER(menu), menuItem);
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(menuItem),
+                            "activate",
+                            FALSE,
+                            G_CALLBACK(newDirectoryToolMenuOnCurrentFileBase),
+                            entry
+                           );
+
+      menuItem = gtk_menu_item_new_with_label("Current file");
+      gtk_container_add(GTK_CONTAINER(menu), menuItem);
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(menuItem),
+                            "activate",
+                            FALSE,
+                            G_CALLBACK(newDirectoryToolMenuOnCurrentFile),
                             entry
                            );
 
@@ -607,6 +709,26 @@ LOCAL GtkWidget *newDirectoryToolMenu(GObject     *rootObject,
                             "activate",
                             FALSE,
                             G_CALLBACK(newDirectoryToolMenuOnProjectDirectory),
+                            entry
+                           );
+
+      menuItem = gtk_menu_item_new_with_label("Current line number");
+      gtk_container_add(GTK_CONTAINER(menu), menuItem);
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(menuItem),
+                            "activate",
+                            FALSE,
+                            G_CALLBACK(newDirectoryToolMenuOnCurrentLineNumber),
+                            entry
+                           );
+
+      menuItem = gtk_menu_item_new_with_label("Text");
+      gtk_container_add(GTK_CONTAINER(menu), menuItem);
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(menuItem),
+                            "activate",
+                            FALSE,
+                            G_CALLBACK(newDirectoryToolMenuOnText),
                             entry
                            );
     }
@@ -791,7 +913,7 @@ gchar *expandMacros(const GeanyProject  *project,
             template++;
             break;
           case 'd':
-            // insert directory
+            // insert directory of current document
             if (document != NULL)
             {
               gchar *directory = g_path_get_dirname(document->file_name);
@@ -801,7 +923,7 @@ gchar *expandMacros(const GeanyProject  *project,
             template++;
             break;
           case 'e':
-            // insert file base name (without extension)
+            // insert current document base name (without extension)
             if (document != NULL)
             {
               gchar *executableName = utils_remove_ext_from_filename(document->file_name);
@@ -813,7 +935,7 @@ gchar *expandMacros(const GeanyProject  *project,
             template++;
             break;
           case 'f':
-            // insert file name
+            // insert current document name
             if (document != NULL)
             {
               gchar *baseName = g_path_get_basename(document->file_name);
