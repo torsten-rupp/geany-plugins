@@ -906,7 +906,7 @@ LOCAL void showBuildWarningsTab()
 }
 
 /**
- * @brief render combo box column
+ * @brief render regex type column
  *
  * @param [in]  cellLayout   cell layout
  * @param [in]  cellRenderer cell renderer
@@ -915,12 +915,12 @@ LOCAL void showBuildWarningsTab()
  * @param [in]  data         user data (not used)
  */
 
-LOCAL void  inputRegDialogCellRenderer(GtkCellLayout   *cellLayout,
-                                       GtkCellRenderer *cellRenderer,
-                                       GtkTreeModel    *treeModel,
-                                       GtkTreeIter     *treeIter,
-                                       gpointer         data
-                                      )
+LOCAL void  dialogRegexTypeCellRenderer(GtkCellLayout   *cellLayout,
+                                        GtkCellRenderer *cellRenderer,
+                                        GtkTreeModel    *treeModel,
+                                        GtkTreeIter     *treeIter,
+                                        gpointer         data
+                                       )
 {
   g_assert(cellLayout != NULL);
   g_assert(cellRenderer != NULL);
@@ -937,7 +937,7 @@ LOCAL void  inputRegDialogCellRenderer(GtkCellLayout   *cellLayout,
 }
 
 /**
- * @brief update input regular expression dialog
+ * @brief update regular expression dialog match
  *
  * @param [in]  widgetLanguage     language widget
  * @param [in]  widgetGroup        group widget
@@ -950,16 +950,16 @@ LOCAL void  inputRegDialogCellRenderer(GtkCellLayout   *cellLayout,
  * @param [in]  widgetOK           OK button widget
  */
 
-LOCAL void inputRegexDialogUpdate(GtkWidget *widgetLanguage,
-                                  GtkWidget *widgetGroup,
-                                  GtkWidget *widgetRegex,
-                                  GtkWidget *widgetSample,
-                                  GtkWidget *widgetFilePath,
-                                  GtkWidget *widgetLineNumber,
-                                  GtkWidget *widgetColumnNumber,
-                                  GtkWidget *widgetMessage,
-                                  GtkWidget *widgetOK
-                                 )
+LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
+                             GtkWidget *widgetGroup,
+                             GtkWidget *widgetRegex,
+                             GtkWidget *widgetSample,
+                             GtkWidget *widgetFilePath,
+                             GtkWidget *widgetLineNumber,
+                             GtkWidget *widgetColumnNumber,
+                             GtkWidget *widgetMessage,
+                             GtkWidget *widgetOK
+                            )
 {
   g_assert(widgetRegex != NULL);
   g_assert(widgetSample != NULL);
@@ -1096,7 +1096,7 @@ LOCAL void onInputRegexDialogChanged(GtkWidget *widget,
   GtkWidget *widgetOK = g_object_get_data(G_OBJECT(dialog), "button_ok");
   g_assert(widgetOK != NULL);
 
-  inputRegexDialogUpdate(widgetLanguage,
+  dialogRegexUpdateMatch(widgetLanguage,
                          widgetGroup,
                          widgetRegex,
                          widgetSample,
@@ -1217,16 +1217,30 @@ LOCAL void onInputRegexDialogComboGroupChanged(GtkWidget *widget,
     GtkTreeModel *treeModel = gtk_combo_box_get_model(GTK_COMBO_BOX(widget));
     g_assert(treeModel != NULL);
 
+    gchar      *language;
     gchar      *group;
     RegExTypes type;
     gchar      *regex;
     gtk_tree_model_get(treeModel,
                        &treeIter,
-                       MODEL_REGEX_GROUP, &group,
-                       MODEL_REGEX_TYPE,  &type,
-                       MODEL_REGEX_REGEX, &regex,
+                       MODEL_REGEX_LANGUAGE, &language,
+                       MODEL_REGEX_GROUP,    &group,
+                       MODEL_REGEX_TYPE,     &type,
+                       MODEL_REGEX_REGEX,    &regex,
                        -1
                       );
+    gint         i = 1;
+    const GSList *node;
+    foreach_slist(node, filetypes_get_sorted_by_name())
+    {
+      const GeanyFiletype *fileType = (GeanyFiletype*)node->data;
+      if (strcmp(language, fileType->name) == 0)
+      {
+        gtk_combo_box_set_active(GTK_COMBO_BOX(widgetLanguage), i);
+      }
+      i++;
+    }
+    gtk_entry_set_text(gtk_bin_get_child(GTK_BIN(widgetGroup)), group);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioEnter),     type == REGEX_TYPE_ENTER    );
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioLeave),     type == REGEX_TYPE_LEAVE    );
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioError),     type == REGEX_TYPE_ERROR    );
@@ -1235,8 +1249,9 @@ LOCAL void onInputRegexDialogComboGroupChanged(GtkWidget *widget,
     gtk_entry_set_text(GTK_ENTRY(widgetRegex), regex);
     g_free(regex);
     g_free(group);
+    g_free(language);
 
-    inputRegexDialogUpdate(widgetLanguage,
+    dialogRegexUpdateMatch(widgetLanguage,
                            widgetGroup,
                            widgetRegex,
                            widgetSample,
@@ -1253,16 +1268,17 @@ LOCAL void onInputRegexDialogComboGroupChanged(GtkWidget *widget,
  * @brief update group store
  *
  * @param [in]  language    langauge or NULL
- * @param [in]  widgetGroup group widget
  * @param [in]  group       group or NULL
- * @return      active index
+ * @param [in]  widgetGroup group widget
+ * @return      active index or -1
  */
 
-LOCAL gint updateGroupStore(const gchar *language, GtkWidget *widgetGroup, const gchar *group)
+LOCAL gint updateGroupStore(const gchar *language, const gchar *group, GtkWidget *widgetGroup)
 {
-  gint index = 0;
+  gint index = -1;
 
   gtk_list_store_clear(pluginData.builtInRegExStore);
+  guint n = 0;
   for (guint i = 0; i < ARRAY_SIZE(REGEX_BUILTIN); i++)
   {
     if (   EMPTY(language)
@@ -1273,12 +1289,14 @@ LOCAL gint updateGroupStore(const gchar *language, GtkWidget *widgetGroup, const
       gtk_list_store_insert_with_values(pluginData.builtInRegExStore,
                                         NULL,
                                         -1,
-                                        MODEL_REGEX_GROUP, REGEX_BUILTIN[i].group,
-                                        MODEL_REGEX_TYPE,  REGEX_BUILTIN[i].type,
-                                        MODEL_REGEX_REGEX, REGEX_BUILTIN[i].regex,
+                                        MODEL_REGEX_LANGUAGE, REGEX_BUILTIN[i].language,
+                                        MODEL_REGEX_GROUP,    REGEX_BUILTIN[i].group,
+                                        MODEL_REGEX_TYPE,     REGEX_BUILTIN[i].type,
+                                        MODEL_REGEX_REGEX,    REGEX_BUILTIN[i].regex,
                                         -1
                                        );
-      if (index < 0) index = (gint)i;
+      if ((index < 0) && (strcmp(REGEX_BUILTIN[i].group, group) == 0)) index = (gint)n;
+      n++;
     }
   }
 
@@ -1342,11 +1360,11 @@ LOCAL void onInputRegexDialogComboLanguageChanged(GtkWidget *widget,
   // update group model
   gchar *language = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(widgetLanguage));
   gchar *group    = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(widgetGroup));
-  updateGroupStore(language, widgetGroup, group);
+  updateGroupStore(language, group, widgetGroup);
   g_free(group);
   g_free(language);
 
-  inputRegexDialogUpdate(widgetLanguage,
+  dialogRegexUpdateMatch(widgetLanguage,
                          widgetGroup,
                          widgetRegex,
                          widgetSample,
@@ -1373,15 +1391,15 @@ LOCAL void onInputRegexDialogComboLanguageChanged(GtkWidget *widget,
  * @return      TRUE on "ok", FALSE otherwise
  */
 
-LOCAL gboolean inputRegexDialog(GtkWindow   *parentWindow,
-                                const gchar *title,
-                                const char  *text,
-                                GString     *languageString,
-                                GString     *groupString,
-                                RegExTypes  *regExType,
-                                GString     *regExString,
-                                const gchar *sample
-                               )
+LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
+                           const gchar *title,
+                           const char  *text,
+                           GString     *languageString,
+                           GString     *groupString,
+                           RegExTypes  *regExType,
+                           GString     *regExString,
+                           const gchar *sample
+                          )
 {
   GtkWidget *widgetLanguage, *widgetGroup;
   GtkWidget *buttonRegExTypeEnter, *buttonRegExTypeLeave, *buttonRegExTypeError, *buttonRegExTypeWarning, *buttonRegExTypeExtension;
@@ -1426,11 +1444,12 @@ LOCAL gboolean inputRegexDialog(GtkWindow   *parentWindow,
       {
         // language combo oox
         widgetLanguage = addBox(hbox, TRUE, newCombo(G_OBJECT(dialog), "combo_language", "Language"));
-        gint i = 0;
+        gint         i = 1;
         const GSList *node;
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(widgetLanguage), "");
         foreach_slist(node, filetypes_get_sorted_by_name())
         {
-          GeanyFiletype *fileType = (GeanyFiletype*)node->data;
+          const GeanyFiletype *fileType = (GeanyFiletype*)node->data;
           gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(widgetLanguage), fileType->name);
           if (strcmp(languageString->str, fileType->name) == 0)
           {
@@ -1449,17 +1468,62 @@ LOCAL gboolean inputRegexDialog(GtkWindow   *parentWindow,
         // group combo oox
         widgetGroup = addBox(hbox, TRUE, newComboEntry(G_OBJECT(dialog), "combo_group", "Group"));
         gtk_combo_box_set_model(GTK_COMBO_BOX(widgetGroup), GTK_TREE_MODEL(pluginData.builtInRegExStore));
-        gtk_combo_box_set_entry_text_column(GTK_COMBO_BOX(widgetGroup), MODEL_REGEX_GROUP);
-        updateGroupStore(languageString->str, widgetGroup, groupString->str);
+        gtk_combo_box_set_entry_text_column(GTK_COMBO_BOX(widgetGroup), MODEL_REGEX_LANGUAGE);
+//“appears-as-list”
+//id-column
+#if 1
+g_object_set(widgetGroup,
+"apperas-as-list", TRUE,
+NULL
+);
+#endif
+        updateGroupStore(languageString->str, groupString->str, widgetGroup);
 
         GtkCellRenderer *cellRenderer;
+
+#if 0
         cellRenderer = gtk_cell_renderer_combo_new();
-        gtk_cell_layout_set_cell_data_func(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, inputRegDialogCellRenderer, NULL, NULL);
+        gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_LANGUAGE, NULL);
         gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
+
+        cellRenderer = gtk_cell_renderer_combo_new();
+        gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_GROUP, NULL);
+        gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
+
+        cellRenderer = gtk_cell_renderer_combo_new();
+        gtk_cell_layout_set_cell_data_func(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, dialogRegexTypeCellRenderer, NULL, NULL);
         gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_TYPE, NULL);
+        gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
+
+        cellRenderer = gtk_cell_renderer_combo_new();s
+        gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_REGEX, NULL);
+        gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
+#elif 0
+        cellRenderer = gtk_cell_renderer_combo_new();
+        gtk_cell_layout_set_cell_data_func(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, dialogRegexCellRenderer, NULL, NULL);
+        gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_TYPE, NULL);
+        gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
+#else
+        // the text entry column is always the first visible column
+/*
+        cellRenderer = gtk_cell_renderer_combo_new();
+        gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
+        gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_LANGUAGE, NULL);
+*/
+
+        cellRenderer = gtk_cell_renderer_combo_new();
+        gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
+        gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_GROUP, NULL);
+
+        cellRenderer = gtk_cell_renderer_combo_new();
+        gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
+        gtk_cell_layout_set_cell_data_func(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, dialogRegexTypeCellRenderer, NULL, NULL);
+        gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_TYPE, NULL);
+
         cellRenderer = gtk_cell_renderer_combo_new();
         gtk_cell_layout_pack_start(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, FALSE);
         gtk_cell_layout_set_attributes(GTK_CELL_LAYOUT(widgetGroup), cellRenderer, "text", MODEL_REGEX_REGEX, NULL);
+#endif
 
         GtkWidget *entryGroup = gtk_bin_get_child(GTK_BIN(widgetGroup));
         g_object_set_data(G_OBJECT(entryGroup), "validator_function", validateGroup);
@@ -1541,8 +1605,8 @@ LOCAL gboolean inputRegexDialog(GtkWindow   *parentWindow,
   addBox(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(dialog))), TRUE, GTK_WIDGET(vbox));
   gtk_widget_show_all(dialog);
 
-  // initial update
-  inputRegexDialogUpdate(widgetLanguage,
+  // initial update match
+  dialogRegexUpdateMatch(widgetLanguage,
                          widgetGroup,
                          widgetRegex,
                          widgetSample,
@@ -1587,7 +1651,7 @@ LOCAL void addRegEx(const gchar *sample)
   GString    *groupString    = g_string_new(NULL);
   RegExTypes regExType       = REGEX_TYPE_NONE;
   GString    *regexString    = g_string_new(NULL);
-  if (inputRegexDialog(GTK_WINDOW(geany_data->main_widgets->window),
+  if (dialogRegex(GTK_WINDOW(geany_data->main_widgets->window),
                        _("Add regular expression"),
                        _("Regular expression:"),
                        languageString,
@@ -1651,7 +1715,7 @@ LOCAL void cloneRegEx(GtkTreeModel *treeModel,
   GString *languageString = g_string_new(language);
   GString *groupString    = g_string_new(group);
   GString *regExString    = g_string_new(regEx);
-  if (inputRegexDialog(GTK_WINDOW(geany_data->main_widgets->window),
+  if (dialogRegex(GTK_WINDOW(geany_data->main_widgets->window),
                        _("Clone regular expression"),
                        _("Regular expression:"),
                        languageString,
@@ -1721,7 +1785,7 @@ LOCAL void editRegEx(GtkTreeModel *treeModel,
   GString *languageString = g_string_new(language);
   GString *groupString    = g_string_new(group);
   GString *regExString    = g_string_new(regEx);
-  if (inputRegexDialog(GTK_WINDOW(geany_data->main_widgets->window),
+  if (dialogRegex(GTK_WINDOW(geany_data->main_widgets->window),
                        _("Edit regular expression"),
                        _("Regular expression:"),
                        languageString,
@@ -1773,7 +1837,7 @@ LOCAL void showSource(const gchar *directory,
 
   // get absolute path
   gchar *absoluteFilePath;
-  if (g_path_is_absolute(filePath) || (directory == NULL))
+  if (g_path_is_absolute(filePath) || EMPTY(directory))
   {
     absoluteFilePath = g_strdup(filePath);
   }
@@ -1785,7 +1849,10 @@ LOCAL void showSource(const gchar *directory,
 
   // find/open document
   GeanyDocument *document = document_find_by_filename(filePath);
-  if (document == NULL) document = document_open_file(absoluteFilePathLocale, FALSE, NULL, NULL);
+  if ((document == NULL) && !EMPTY(absoluteFilePathLocale))
+  {
+    document = document_open_file(absoluteFilePathLocale, FALSE, NULL, NULL);
+  }
   if (document != NULL)
   {
     // goto line
@@ -2977,6 +3044,7 @@ LOCAL gboolean onMessageListSelectionChanged(gpointer data)
   g_assert(messageList != NULL);
 
   GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(messageList);
+  g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
   GtkTreeIter  treeIter;
@@ -2986,10 +3054,10 @@ LOCAL gboolean onMessageListSelectionChanged(gpointer data)
     gint  lineNumber, columnNumber;
     gtk_tree_model_get(treeModel,
                        &treeIter,
-                       MODEL_ERROR_WARNING_DIRECTORY,     &directory,
-                       MODEL_ERROR_WARNING_FILE_PATH,      &filePath,
-                       MODEL_ERROR_WARNING_LINE_NUMBER,   &lineNumber,
-                       MODEL_ERROR_WARNING_COLUMN_NUMBER, &columnNumber,
+                       MODEL_MESSAGE_DIRECTORY,     &directory,
+                       MODEL_MESSAGE_FILE_PATH,     &filePath,
+                       MODEL_MESSAGE_LINE_NUMBER,   &lineNumber,
+                       MODEL_MESSAGE_COLUMN_NUMBER, &columnNumber,
                        -1
                       );
     if (filePath != NULL)
@@ -4318,14 +4386,12 @@ LOCAL void onConfigureResponse(GtkDialog *dialog, gint response, gpointer data)
 
 LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data)
 {
-  GtkBox *vbox;
-
   g_assert(plugin != NULL);
 
   UNUSED_VARIABLE(data);
 
   // init configuration settings
-  vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+  GtkBox *vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
   {
     GtkWidget *frame;
 
