@@ -55,6 +55,123 @@ typedef GPtrArray StringStack;
 
 /***************************** Functions *******************************/
 
+gchar *stringEscape(const gchar *string, const char *toEscape, char escapeChar)
+{
+  GString *escapedString;
+
+  g_assert(toEscape != NULL);
+
+  escapedString = g_string_new(NULL);
+  if (string != NULL)
+  {
+    while ((*string) != '\0')
+    {
+      if (   ((*string) == escapeChar)
+          || (strchr(toEscape,*string) != NULL)
+         )
+      {
+        g_string_append_c(escapedString, escapeChar);
+      }
+      g_string_append_c(escapedString, *string);
+      string++;
+    }
+  }
+
+  return g_string_free(escapedString,FALSE);
+}
+
+gchar *stringUnescape(const gchar *string, char escapeChar)
+{
+  g_assert(string != NULL);
+
+  GString *unescapedString;
+
+  unescapedString = g_string_new(NULL);
+  while ((*string) != '\0')
+  {
+    if ((*string) == escapeChar)
+    {
+      string++;
+      if ((*string) != '\0')
+      {
+        g_string_append_c(unescapedString, *string);
+      }
+    }
+    else
+    {
+      g_string_append_c(unescapedString, *string);
+    }
+    string++;
+  }
+
+  return g_string_free(unescapedString,FALSE);
+}
+
+gchar **stringSplit(const gchar *string,
+                    const gchar *delimiters,
+                    char        escapeChar,
+                    gint        maxTokens
+                   )
+{
+  GPtrArray  *tokens;
+  const char *tokenStart;
+  char       *token;
+  gint       n;
+
+  g_assert(delimiters != NULL);
+  g_assert(maxTokens >= 1);
+
+  if (string != NULL)
+  {
+    tokens = g_ptr_array_new();
+    n      = 0;
+
+    // get token 1..n-1
+    tokenStart = string;
+    while (   ((*string) != '\0')
+           && (   (maxTokens == -1)
+               || ((n+1) < maxTokens)
+              )
+          )
+    {
+      // get next token
+      if      ((*string) == escapeChar)
+      {
+        string++;
+        if ((*string) != '\0') string++;
+      }
+      else if (strchr(delimiters,*string) != NULL)
+      {
+        token = g_strndup(tokenStart, string-tokenStart);
+
+        string++;
+        tokenStart = string;
+
+        g_ptr_array_add(tokens, token);
+        n++;
+      }
+      else
+      {
+        string++;
+      }
+    }
+
+    // get last token
+    if ((*string) != '\0')
+    {
+      token = g_strdup(string);
+      g_ptr_array_add(tokens, token);
+    }
+    g_ptr_array_add(tokens, NULL);
+
+    return (gchar **)g_ptr_array_free(tokens, FALSE);
+  }
+  else
+  {
+    return NULL;
+  }
+}
+
 StringStack *string_stack_new()
 {
   return g_ptr_array_new_with_free_func(g_free);
@@ -198,12 +315,14 @@ gchar *getAbsoluteDirectory(const gchar *directory,
 
 // ---------------------------------------------------------------------
 
-/**
- * @brief convert RGBA color to 32bit Scintilla color BGR
- *
- * @param [in]  color RGBA color
- * @return      Scintilla color BGR
- */
+/***********************************************************************\
+* Name   : colorRGBAToBGR
+* Purpose: convert RGBA color to 32bit Scintilla color BGR
+* Input  : color - RGBA color
+* Output : -
+* Return : Scintilla color BGR
+* Notes  : -
+\***********************************************************************/
 
 LOCAL_INLINE uint32_t colorRGBAToBGR(const GdkRGBA *color)
 {
@@ -325,7 +444,7 @@ GtkWidget *newCheckButton(GObject     *rootObject,
 {
   GtkWidget *checkButton;
 
-  checkButton = gtk_check_button_new_with_label(text);
+  checkButton = (text != NULL) ? gtk_check_button_new_with_label(text) : gtk_check_button_new();
   gtk_widget_set_tooltip_text(checkButton, tooltipText);
   gtk_widget_set_halign(checkButton, GTK_ALIGN_START);
 
@@ -457,12 +576,15 @@ GtkWidget *newDirectoryChooser(GObject     *rootObject,
   return directoryChooser;
 }
 
-/**
- * @brief open directory selector popup menu
- *
- * @param [in]  button button widget
- * @param [in]  data   popup menu to open
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnPopupMenu
+* Purpose: open directory selector popup menu
+* Input  : button - button widget
+*          data   - popup menu to open
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnPopupMenu(GtkButton *button, gpointer data)
 {
@@ -474,12 +596,15 @@ LOCAL void newDirectoryToolMenuOnPopupMenu(GtkButton *button, gpointer data)
   gtk_menu_popup_at_widget(menu, GTK_WIDGET(button), GDK_GRAVITY_SOUTH_EAST, GDK_GRAVITY_NORTH_EAST, NULL);
 }
 
-/**
- * @brief select directory
- *
- * @param [in]  menuItem button widget
- * @param [in]  data     entry widget
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnSelectDirectory
+* Purpose: select directory
+* Input  : menuItem - button widget
+*          data     - entry widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkMenuItem *menuItem,
                                                  gpointer    data
@@ -513,12 +638,15 @@ LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkMenuItem *menuItem,
   gtk_widget_destroy(dialog);
 }
 
-/**
- * @brief current file directory
- *
- * @param [in]  menuItem button widget
- * @param [in]  data     entry widget
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnSelectDirectory
+* Purpose: current file directory
+* Input  : menuItem - button widget
+*          data     - entry widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnCurrentFileDirectory(GtkMenuItem *menuItem,
                                                gpointer    data
@@ -533,12 +661,15 @@ LOCAL void newDirectoryToolMenuOnCurrentFileDirectory(GtkMenuItem *menuItem,
   gtk_entry_set_text(entry, "%d");
 }
 
-/**
- * @brief curent file basename
- *
- * @param [in]  menuItem button widget
- * @param [in]  data     entry widget
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnCurrentFileBase
+* Purpose: curent file basename
+* Input  : menuItem - button widget
+*          data     - entry widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnCurrentFileBase(GtkMenuItem *menuItem,
                                                  gpointer    data
@@ -553,12 +684,15 @@ LOCAL void newDirectoryToolMenuOnCurrentFileBase(GtkMenuItem *menuItem,
   gtk_entry_set_text(entry, "%e");
 }
 
-/**
- * @brief current file name
- *
- * @param [in]  menuItem button widget
- * @param [in]  data     entry widget
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnCurrentFile
+* Purpose: current file name
+* Input  : menuItem - button widget
+*          data     - entry widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnCurrentFile(GtkMenuItem *menuItem,
                                              gpointer    data
@@ -573,12 +707,15 @@ LOCAL void newDirectoryToolMenuOnCurrentFile(GtkMenuItem *menuItem,
   gtk_entry_set_text(entry, "%f");
 }
 
-/**
- * @brief project base directory
- *
- * @param [in]  menuItem button widget
- * @param [in]  data     entry widget
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnSelectDirectory
+* Purpose: project base directory
+* Input  : menuItem - button widget
+*          data     - entry widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnProjectDirectory(GtkMenuItem *menuItem,
                                                   gpointer    data
@@ -593,12 +730,15 @@ LOCAL void newDirectoryToolMenuOnProjectDirectory(GtkMenuItem *menuItem,
   gtk_entry_set_text(entry, "%p");
 }
 
-/**
- * @brief current line number
- *
- * @param [in]  menuItem button widget
- * @param [in]  data     entry widget
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnCurrentLineNumber
+* Purpose: current line number
+* Input  : menuItem - button widget
+*          data     - entry widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnCurrentLineNumber(GtkMenuItem *menuItem,
                                                    gpointer    data
@@ -613,12 +753,15 @@ LOCAL void newDirectoryToolMenuOnCurrentLineNumber(GtkMenuItem *menuItem,
   gtk_entry_set_text(entry, "%l");
 }
 
-/**
- * @brief text
- *
- * @param [in]  menuItem button widget
- * @param [in]  data     entry widget
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnText
+* Purpose: text
+* Input  : menuItem - button widget
+*          data     - entry widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnText(GtkMenuItem *menuItem,
                                       gpointer    data
@@ -633,16 +776,19 @@ LOCAL void newDirectoryToolMenuOnText(GtkMenuItem *menuItem,
   gtk_entry_set_text(entry, "%t");
 }
 
-/**
- * @brief add directory select menu widget
- *
- * @param [in]  rootObject  root object
- * @param [in]  grid        grid container widget
- * @param [in]  row, column row/column in grid
- * @param [in]  name        property value name
- * @param [in]  text        entry label text
- * @param [in]  tooltipText entry tooltip text
- */
+/***********************************************************************\
+* Name   : newDirectoryToolMenu
+* Purpose: add directory select menu widget
+* Input  : rootObject  - root object
+*          grid        - grid container widget
+*          row, column - row/column in grid
+*          name        - property value name
+*          text        - entry label text
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL GtkWidget *newDirectoryToolMenu(GObject     *rootObject,
                                       GtkEntry    *entry,
@@ -776,12 +922,15 @@ GtkWidget *newWorkingDirectoryChooser(GObject     *rootObject,
   return subGrid;
 }
 
-/**
- * @brief input entry text changed callback
- *
- * @param [in]  entry entry
- * @param [in]  data  ok-button widget
- */
+/***********************************************************************\
+* Name   : onInputDialogChanged
+* Purpose: input entry text changed callback
+* Input  : entry - entry
+*          data  - ok-button widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 LOCAL void onInputDialogChanged(GtkEntry *entry,
                                 gpointer data

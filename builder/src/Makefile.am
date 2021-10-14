@@ -3,6 +3,11 @@ plugin = builder
 
 geanyplugins_LTLIBRARIES = builder.la
 
+regex-list.c: ../data/regex-list.txt
+	cat ../data/regex-list.txt | sort | awk -f ../regex-list.awk > $@
+
+EXTRA_builder_la_DEPENDENCIES = regex-list.c
+
 builder_la_SOURCES = builder.c utils.c
 builder_la_CPPFLAGS = $(AM_CPPFLAGS) -DG_LOG_DOMAIN=\"Builder\"
 builder_la_CFLAGS = $(AM_CFLAGS) $(GIO_CFLAGS) \

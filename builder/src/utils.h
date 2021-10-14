@@ -57,65 +57,155 @@ typedef GPtrArray StringStack;
 
 /***************************** Functions *******************************/
 
-/**
- * @brief new string stack
- *
- * @return      string stack
- */
+/***********************************************************************\
+* Name   : stringEquals
+* Purpose: compare if strings are equal
+* Input  : s1,s2 - strings
+* Output : -
+* Return : TRUE iff equals
+* Notes  : -
+\***********************************************************************/
+
+static INLINE gboolean stringEquals(const gchar *s1, const gchar *s2)
+{
+  return (s1 == s2) || ((s1 != NULL) && (s2 != NULL) && (strcmp(s1,s2) == 0));
+}
+
+/***********************************************************************\
+* Name   : isStringEmpty
+* Purpose: check if string is empty
+* Input  : s - string
+* Output : -
+* Return : TRUE iff empty
+* Notes  : -
+\***********************************************************************/
+
+static INLINE gboolean isStringEmpty(const gchar *s)
+{
+  return (s == NULL) || (s[0] == '\0');
+}
+
+/***********************************************************************\
+* Name   : stringEscape
+* Purpose: escape characters in string
+* Input  : string     - string
+*          toEscape   - characters to escape
+*          escapeChar - escape character
+* Output : -
+* Return : escaped string
+* Notes  : free string with g_free()!
+\***********************************************************************/
+
+gchar *stringEscape(const gchar *string, const char *toEscape, char escapeChar);
+
+/***********************************************************************\
+* Name   : stringUnescape
+* Purpose: unescape characters in string
+* Input  : string     - string
+*          toEscape   - characters to escape
+*          escapeChar - escape character
+* Output : -
+* Return : unescaped string
+* Notes  : free string with g_free()!
+\***********************************************************************/
+
+gchar *stringUnescape(const gchar *string, char escapeChar);
+
+/***********************************************************************\
+* Name   : stringSplit
+* Purpose: split string into tokens
+* Input  : string - string
+*          delimiters - delimiters charachters
+*          escapeChar - escape character or NUL
+*          maxTokens  - max. number of tokens or -1
+* Output : -
+* Return : string array or NULL if string is NULL
+* Notes  : -
+\***********************************************************************/
+
+gchar **stringSplit(const gchar *string,
+                    const gchar *delimiters,
+                    char        escapeChar,
+                    gint        maxTokens
+                   );
+
+/***********************************************************************\
+* Name   : string_stack_new
+* Purpose: new string stack
+* Input  : -
+* Output : -
+* Return : string stack
+* Notes  : -
+\***********************************************************************/
 
 StringStack *string_stack_new();
 
-/**
- * @brief free string stack
- *
- * @param [in]  stringStack string stack to free
- */
+/***********************************************************************\
+* Name   : string_stack_free
+* Purpose: free string stack
+* Input  : stringStack - string stack to free
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 void string_stack_free(StringStack *stringStack);
 
-/**
- * @brief push string on string stack
- *
- * @param [in]  stringStack string stack
- * @param [in]  string      string
- */
+/***********************************************************************\
+* Name   : string_stack_push
+* Purpose: push string on string stack
+* Input  : stringStack - string stack
+*          string      - string
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 void string_stack_push(StringStack *stringStack, const gchar *string);
 
-/**
- * @brief pop string from string stack
- *
- * @param [in]  stringStack string stack
- * @return      string
- */
+/***********************************************************************\
+* Name   : string_stack_pop
+* Purpose: pop string from string stack
+* Input  : stringStack - string stack
+* Output : -
+* Return : string
+* Notes  : -
+\***********************************************************************/
 
 void string_stack_pop(StringStack *stringStack);
 
-/**
- * @brief clear string stack
- *
- * @param [in]  stringStack string stack
- */
+/***********************************************************************\
+* Name   : string_stack_clear
+* Purpose: clear string stack
+* Input  : stringStack - string stack
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 void string_stack_clear(StringStack *stringStack);
 
-/**
- * @brief get top string on stack or NULL
- *
- * @param [in]  stringStack string stack
- * @return      top string
- */
+/***********************************************************************\
+* Name   : string_stack_top
+* Purpose: get top string on stack or NULL
+* Input  : stringStack - string stack
+* Output : -
+* Return : top string
+* Notes  : -
+\***********************************************************************/
 
 gchar *string_stack_top(StringStack *stringStack);
 
-/**
- * @brief get absolute directory with current working directory or
- *        (sub-)directiry
- *
- * @param [in]  workingDirectory working directory
- * @param [in]  directory        absolute or relative directory
- * @return      absolute directory (when possible)
- */
+/***********************************************************************\
+* Name   : getAbsoluteDirectory
+* Purpose: get absolute directory with current working directory or
+*          (sub-)directiry
+* Input  : workingDirectory - working directory
+*          directory        - absolute or relative directory
+* Output : -
+* Return : absolute directory (when possible)
+* Notes  : -
+\***********************************************************************/
 
 gchar *getAbsoluteDirectory(const gchar *directory,
                             ...
@@ -123,73 +213,93 @@ gchar *getAbsoluteDirectory(const gchar *directory,
 
 // ---------------------------------------------------------------------
 
-/**
- * @brief set indicator
- *
- * @param [in]  filePath       file path
- * @param [in]  lineNumber     line number [1..n]
- * @param [in]  color          indicator color
- * @param [in]  indicatorIndex indciator index
- */
+/***********************************************************************\
+* Name   : setIndicator
+* Purpose: set indicator
+* Input  : filePath       - file path
+*          lineNumber     - line number [1..n]
+*          color          - indicator color
+*          indicatorIndex - indciator index
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 void setIndicator(const gchar *filePath, guint lineNumber, const GdkRGBA *color, guint indicatorIndex);
 
-/**
- * @brief clear indicator
- *
- * @param [in]  document       document
- * @param [in]  indicatorIndex indicator index
- */
+/***********************************************************************\
+* Name   : clearIndicator
+* Purpose: clear indicator
+* Input  : document       - document
+*          indicatorIndex - indicator index
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 void clearIndicator(GeanyDocument *document, guint indicatorIndex);
 
-/**
- * @brief adjust tree view to show end
- *
- * @param [in]  data scrolled window widget
- */
+/***********************************************************************\
+* Name   : adjustTreeView
+* Purpose: adjust tree view to show end
+* Input  : data - scrolled window widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 gboolean adjustTreeViewToEnd(gpointer data);
 
-/**
- * @brief show last line
- *
- * @param [in]  widget scrolled window widget
- */
+/***********************************************************************\
+* Name   : showLastLine
+* Purpose: show last line
+* Input  : widget - scrolled window widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 void showLastLine(GtkScrolledWindow *widget);
 
-/**
- * @brief add widget to box
- *
- * @param [in]  box    box
- * @param [in]  expand TRUE to fill+expand
- * @param [in]  widget widget to add
- * @return      widget
- */
+/***********************************************************************\
+* Name   : addBox
+* Purpose: add widget to box
+* Input  : box    - box
+*          expand - TRUE to fill+expand
+*          widget - widget to add
+* Output : -
+* Return : widget
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *addBox(GtkBox *box, gboolean expand, GtkWidget *widget);
 
-/**
- * @brief add widget to grid
- *
- * @param [in]  grid        grid
- * @param [in]  row, column row/column
- * @param [in]  columnSpan  column span [1..n]
- * @param [in]  widget      widget to add
- * @return      widget
- */
+/***********************************************************************\
+* Name   : addGrid
+* Purpose: add widget to grid
+* Input  : grid        - grid
+*          row, column - row/column
+*          columnSpan  - column span [1..n]
+*          widget      - widget to add
+* Output : -
+* Return : widget
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *addGrid(GtkGrid *grid, guint row, guint column, guint columnSpan, GtkWidget *widget);
 
-/**
- * @brief add label widget
- *
- * @param [in]  rootObject  root object
- * @param [in]  name        property value name
- * @param [in]  text        entry label text
- * @param [in]  tooltipText entry tooltip text
- */
+/***********************************************************************\
+* Name   : newLabel
+* Purpose: add label widget
+* Input  : rootObject  - root object
+*          name        - property value name
+*          text        - entry label text
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newLabel(GObject     *rootObject,
                     const gchar *name,
@@ -197,29 +307,34 @@ GtkWidget *newLabel(GObject     *rootObject,
                     const gchar *tooltipText
                    );
 
-/**
- * @brief add text view widget
- *
- * @param [in]  rootObject  root object
- * @param [in]  name        property value name
- * @param [in]  text        entry label text
- * @param [in]  tooltipText entry tooltip text
- */
+/***********************************************************************\
+* Name   : newView
+* Purpose: add text view widget
+* Input  : rootObject  - root object
+*          name        - property value name
+*          text        - entry label text
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newView(GObject     *rootObject,
                    const gchar *name,
                    const gchar *tooltipText
                   );
 
-/**
- * @brief add check button widget
- *
- * @param [in]  rootObject  root object
- * @param [in]  name        property value name
- * @param [in]  text        entry label text
- * @param [in]  tooltipText entry tooltip text
- * @return      widget
- */
+/***********************************************************************\
+* Name   : newCheckButton
+* Purpose: add check button widget
+* Input  : rootObject  - root object
+*          name        - property value name
+*          text        - entry label text
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : widget
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newCheckButton(GObject     *rootObject,
                           const gchar *name,
@@ -227,15 +342,18 @@ GtkWidget *newCheckButton(GObject     *rootObject,
                           const gchar *tooltipText
                          );
 
-/**
- * @brief add radio button widget
- *
- * @param [in]  rootObject      root object
- * @param [in]  prevRadioButton previouos radio button or NULL
- * @param [in]  name            property value name
- * @param [in]  text            entry label text
- * @param [in]  tooltipText     entry tooltip text
- */
+/***********************************************************************\
+* Name   : newRadioButton
+* Purpose: add radio button widget
+* Input  : rootObject      - root object
+*          prevRadioButton - previouos radio button or NULL
+*          name            - property value name
+*          text            - entry label text
+*          tooltipText     - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newRadioButton(GObject     *rootObject,
                           GtkWidget   *prevRadioButton,
@@ -244,99 +362,117 @@ GtkWidget *newRadioButton(GObject     *rootObject,
                           const gchar *tooltipText
                          );
 
-/**
- * @brief add combo widget
- *
- * @param [in]  rootObject  root object
- * @param [in]  name        property value name
- * @param [in]  tooltipText entry tooltip text
- */
+/***********************************************************************\
+* Name   : newCombo
+* Purpose: add combo widget
+* Input  : rootObject  - root object
+*          name        - property value name
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newCombo(GObject     *rootObject,
                     const gchar *name,
                     const gchar *tooltipText
                    );
 
-/**
- * @brief add combo widget with entry
- *
- * @param [in]  rootObject  root object
- * @param [in]  name        property value name
- * @param [in]  tooltipText entry tooltip text
- */
+/***********************************************************************\
+* Name   : newComboEntry
+* Purpose: add combo widget with entry
+* Input  : rootObject  - root object
+*          name        - property value name
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newComboEntry(GObject     *rootObject,
                          const gchar *name,
                          const gchar *tooltipText
                         );
 
-/**
- * @brief add text entry widget
- *
- * @param [in]  rootObject  root object
- * @param [in]  name        property value name
- * @param [in]  text        entry label text
- * @param [in]  tooltipText entry tooltip text
- */
+/***********************************************************************\
+* Name   : newEntry
+* Purpose: add text entry widget
+* Input  : rootObject  - root object
+*          name        - property value name
+*          text        - entry label text
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newEntry(GObject     *rootObject,
                     const gchar *name,
                     const gchar *tooltipText
                    );
 
-/**
- * @brief add color chooser widget
- *
- * @param [in]  rootObject  root object
- * @param [in]  name        property value name
- * @param [in]  tooltipText entry tooltip text
- */
+/***********************************************************************\
+* Name   : newColorChooser
+* Purpose: add color chooser widget
+* Input  : rootObject  - root object
+*          name        - property value name
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newColorChooser(GObject     *rootObject,
                            const gchar *name,
                            const gchar *tooltipText
                           );
 
-/**
- * @brief add color chooser widget
- *
- * @param [in]  rootObject  root object
- * @param [in]  entry       entry widget to get/set directory path
- * @param [in]  tooltipText entry tooltip text
- */
+/***********************************************************************\
+* Name   : addDirectoryChooser
+* Purpose: add color chooser widget
+* Input  : rootObject  - root object
+*          entry       - entry widget to get/set directory path
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newDirectoryChooser(GObject     *rootObject,
                                GtkEntry    *entry,
                                const gchar *tooltipText
                               );
 
-/**
- * @brief add working directory chooser with directory select menu
- *
- * @param [in]  rootObject  root object
- * @param [in]  name        property value name
- * @param [in]  tooltipText entry tooltip text
- * @return      entry widget
- */
+/***********************************************************************\
+* Name   : newWorkingDirectoryChooser
+* Purpose: add working directory chooser with directory select menu
+* Input  : rootObject  - root object
+*          name        - property value name
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : grid widget
+* Notes  : -
+\***********************************************************************/
 
 GtkWidget *newWorkingDirectoryChooser(GObject     *rootObject,
                                       const gchar *name,
                                       const gchar *tooltipText
                                      );
 
-/**
- * @brief input text line dialog
- *
- * @param [in]  parentWindow parent window
- * @param [in]  title        dialog title
- * @param [in]  text         dialog entry text
- * @param [in]  tooltipText  dialog tooltip text
- * @param [in]  value        text entry value or NULL
- * @param [in]  validator    validator callback or NULL
- * @param [in]  data         user data
- * @param [out] string input string
- * @return      TRUE on "ok", FALSE otherwise
- */
+/***********************************************************************\
+* Name   : inputDialog
+* Purpose: input text line dialog
+* Input  : parentWindow - parent window
+*          title        - dialog title
+*          text         - dialog entry text
+*          tooltipText  - dialog tooltip text
+*          value        - text entry value or NULL
+*          validator    - validator callback or NULL
+*          data         - user data
+* Output : string - input string
+* Return : TRUE on "ok", FALSE otherwise
+* Notes  : -
+\***********************************************************************/
 
 gboolean inputDialog(GtkWindow      *parentWindow,
                      const gchar    *title,
@@ -350,15 +486,17 @@ gboolean inputDialog(GtkWindow      *parentWindow,
 
 // ---------------------------------------------------------------------
 
-/**
- * @brief expand macros %%, %d, %e, %f, %p, %t
- *
- * @param [in]  project    project or NULL
- * @param [in]  document   current document or NULL
- * @param [in]  template   template with macros to expand
- * @param [in]  customText custom text
- * @return      expanded string
- */
+/***********************************************************************\
+* Name   : expandMacros
+* Purpose: expand macros %%, %d, %e, %f, %p, %t
+* Input  : project    - project or NULL
+*          document   - current document or NULL
+*          template   - template with macros to expand
+*          customText - custom text
+* Output : -
+* Return : expanded string
+* Notes  : -
+\***********************************************************************/
 
 gchar *expandMacros(const GeanyProject  *project,
                     const GeanyDocument *document,
