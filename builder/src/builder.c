@@ -3333,10 +3333,6 @@ LOCAL gboolean onMessageListSelectionChanged(gpointer data)
                        MODEL_MESSAGE_COLUMN_NUMBER, &columnNumber,
                        MODEL_MESSAGE_END
                       );
-    if (messageTreePath != NULL)
-    {
-      scrollToMessage(messageTreePath);
-    }
     if (filePath != NULL)
     {
       showSource(directory, filePath, lineNumber, columnNumber);
