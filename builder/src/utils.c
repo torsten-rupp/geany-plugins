@@ -212,7 +212,6 @@ gchar *string_stack_top(StringStack *stringStack)
 {
   g_assert(stringStack != NULL);
 
-//fprintf(stderr,"%s:%d: top %d\n",__FILE__,__LINE__,stringStack->len);
   if (stringStack->len > 0)
   {
     return (gchar*)stringStack->pdata[stringStack->len-1];
@@ -232,7 +231,7 @@ gchar *getAbsoluteDirectory(const gchar *directory,
   g_assert(directory != NULL);
 
   // get initial root (if possible)
-  GString   *root       = g_string_new_len(directory, g_path_skip_root(directory)-directory);
+  GString *root = g_string_new_len(directory, g_path_skip_root(directory)-directory);
   if (root->len <= 0)
   {
     #if   defined(G_OS_UNIX)
