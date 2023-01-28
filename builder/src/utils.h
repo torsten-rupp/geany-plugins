@@ -290,6 +290,18 @@ GtkWidget *addBox(GtkBox *box, gboolean expand, GtkWidget *widget);
 GtkWidget *addGrid(GtkGrid *grid, guint row, guint column, guint columnSpan, GtkWidget *widget);
 
 /***********************************************************************\
+* Name   : addTab
+* Purpose: add tab widget to notebook
+* Input  : notebook - notebook
+*          title    - tab title
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+GtkWidget *addTab(GtkWidget *notebook, const char *title);
+
+/***********************************************************************\
 * Name   : newLabel
 * Purpose: add label widget
 * Input  : rootObject  - root object

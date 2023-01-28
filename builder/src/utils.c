@@ -394,6 +394,18 @@ GtkWidget *addGrid(GtkGrid *grid, guint row, guint column, guint columnSpan, Gtk
   return widget;
 }
 
+GtkWidget *addTab(GtkWidget *notebook, const char *title)
+{
+  GtkWidget *label = gtk_label_new(title);
+
+  GtkBox *vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+  g_assert(vbox != NULL);
+
+  gtk_notebook_append_page(GTK_NOTEBOOK(notebook), GTK_WIDGET(vbox), label);
+
+  return GTK_WIDGET(vbox);
+}
+
 GtkWidget *newLabel(GObject     *rootObject,
                     const gchar *name,
                     const gchar *text,
@@ -1036,7 +1048,7 @@ gboolean inputDialog(GtkWindow      *parentWindow,
 gchar *expandMacros(const GeanyProject  *project,
                     const GeanyDocument *document,
                     const gchar         *template,
-                    const gchar *wrapperCommand,
+                    const gchar         *wrapperCommand,
                     const gchar         *customTarget
                    )
 {
