@@ -2575,8 +2575,6 @@ LOCAL gboolean isMatchingRegExs(GtkTreeModel *treeModel,
 LOCAL void onExecuteCommandOutput(GString *line, GIOCondition ioCondition, gpointer data)
 {
   GString *string;
-// TODO:
-int xxxx;
 
   g_assert(line != NULL);
 
