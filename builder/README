@@ -8,7 +8,7 @@ About
 
 The builder plugin for Geany provides an alternative way to build
 a project. The plugin offer a set of toolbar buttons and a toolbar
-menu to build, clean, run and stop a build process resp. the built
+menu to build, clean, run and abort a build process resp. the built
 application. Make and compiler output messages are parsed via
 definable regular expressions and shown in a list with errors and
 warnings.
@@ -24,6 +24,8 @@ Features
 * keybindings
 * project and global configurations
 * configuration dialogs
+* support for execution build commands inside a runnging docker
+  container
 
 Usage
 -----
@@ -73,7 +75,7 @@ via the toolbar button menu. The global configuration consists of:
   Matching lines of the build output are listed in the errors resp.
   warnings tab and can be located in the corresponding document.
 
-* visible toolbar buttons to build, clean, run or stop
+* visible toolbar buttons to build, clean, run or abort
 
 * indicators and colors of indicators
 
@@ -116,8 +118,8 @@ Build:
 To build a project either press the "Build" button in the toolbar or
 select some specific build action from the menu. The toolbar button
 "Clean" usually do a clean action as defined in the command settings
-above. "Run" start the application, "Stop" terminate a running build
-action or stop the application.
+above. "Run" start the application, "Abort" terminate a running build
+action or abort the application.
 
 Locate errors and warnings:
 
