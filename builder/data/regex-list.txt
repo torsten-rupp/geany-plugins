@@ -1,0 +1,184 @@
+# Abaqus
+
+# Abc
+
+# ActionScript
+
+# Ada
+
+# Arduino
+
+# Asciidoc
+
+# ASM
+
+# Batch
+
+# BibTeX
+
+# C
+C     gcc    error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*.*error:\s*(?<message>.+)$
+C     gcc    error     ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\s*error:\s*(?<message>.*)$
+C     gcc    warning   ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*warning:\s*(?<message>.+)$
+C     gcc    extension ^\s+(?<message>.+)$
+
+C     clang error      ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*.*error:\s*(?<message>.+)$
+C     clang error      ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):\s*error:\s*(?<message>.*)$
+C     clang warning    ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*warning:\s*(?<message>.+)$
+C     clang extension  ^\s+(?<message>.+)$
+
+#C     linker error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):\s*(?<message>.+)$
+C     linker error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):\s*(?<message>undefined.*)$
+
+# C#
+
+# C++
+C++   gcc    error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*.*error:\s*(?<message>.+)$
+C++   gcc    warning   ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*warning:\s*(?<message>.+)$
+C++   clang  extension ^\s+(?<message>.+)$
+
+C++   clang  error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*.*error:\s*(?<message>.+)$
+C++   clang  warning   ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*warning:\s*(?<message>.+)$
+C++   clang  extension ^\s+(?<message>.+)$
+
+#C++   linker error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):\s*(?<message>.+)$
+C++   linker error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):\s*(?<message>undefined.*)$
+
+# CAML
+
+# Clojure
+
+# CMake
+
+# COBOL
+
+# CoffeeScript
+
+# Conf
+
+# CSS
+
+# CUDA
+
+# Cython
+
+# D
+
+# Diff
+
+# Docbook
+
+# Erlang
+
+# F77
+
+# Ferite
+
+# Forth
+
+# Fortran
+
+# FreeBasic
+
+# Genie
+
+# GLSL
+
+# Go
+
+# Graphviz
+
+# Groovy
+
+# Haskell
+
+# Haxe
+
+# HTML
+
+# Java
+Java  javac error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):\s*error:\s*(?<message>.+)$
+Java  javac error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):\s*warning:\s*(?<message>.+)$
+
+# Javascript
+
+# JSON
+
+# Kotlin
+
+# LaTeX
+
+# Lisp
+
+# Lua
+
+# Make
+Make  gmake enter     ^.*Entering directory\s+'(?<directory>[^']*)'\s*$
+Make  gmake leave     ^.*Leaving directory\s+'(?<directory>[^']*)'\s*$
+
+# Markdown
+
+# Matlab/Octave
+
+# Nim
+
+# NSIS
+
+# Objective-C
+
+# Pascal
+
+# Perl
+Perl perl error       ^syntax error at\s+(?<filePath>.*)\s+line\s+(?<lineNumber>[0-9]+),\s+(?<message>.+)$
+
+# PHP
+PHP  php error        ^Parse error: parse error,\s*(.*)\s+in\s+(?<filePath>.*)\s+on line\s+(?<lineNumber>[0-9]+)\s+(?<message>.+)$
+PHP  php error        ^Parse error: syntax error,\s*(.*)\s+in\s+(?<filePath>.*)\s+on line\s+(?<lineNumber>[0-9]+)\s+(?<message>.+)$
+
+# Po
+
+# PowerShell
+
+# Python
+
+# R
+
+# reStructuredText
+
+# Ruby
+
+# Rust
+
+# Scala
+
+# Sh
+
+# Smalltalk
+
+# SQL
+
+# Swift
+
+# Tcl
+
+# Txt2tags
+
+# TypeScript
+
+# Vala
+
+# Verilog
+
+# VHDL
+
+# XML
+
+# YAML
+
+# Zephir
+
+# any
+* * enter             ^\s*Entering directory\s+'(?<directory>[^']+)'\s*$
+* * leave             ^\s*Leaving directory\s+'(?<directory>[^']+)'\s*$
+* * error             ^(?<filePath>[^:]+):(?<lineNumber>\d+):\s*warning:\s*(?<message>.+)$
+* * warning           ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):\s*warning:\s*(?<message>.+)$
