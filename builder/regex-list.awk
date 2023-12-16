@@ -1,6 +1,6 @@
 BEGIN \
 {
-  printf("struct { const gchar *language; const gchar *group; RegExTypes type; const gchar *regex; } REGEX_BUILTIN[] =\n");
+  printf("struct { const gchar *language; const gchar *group; RegexTypes type; const gchar *regex; } REGEX_BUILTIN[] =\n");
   printf("{\n");
 }
 

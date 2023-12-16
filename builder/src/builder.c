@@ -244,6 +244,7 @@ LOCAL struct
     struct
     {
       GtkWidget *commands[MAX_COMMANDS];
+      GtkWidget *projectCommands[MAX_COMMANDS];
       GtkWidget *abort;
 
       GtkWidget *showPrevError;
@@ -260,6 +261,7 @@ LOCAL struct
     struct
     {
       GtkToolItem *commands[MAX_COMMANDS];
+      GtkToolItem *projectCommands[MAX_COMMANDS];
       GtkToolItem *abort;
     } buttons;
 
@@ -428,7 +430,7 @@ LOCAL void setCommand(Command     *command,
 /***********************************************************************\
 * Name   : getCommand
 * Purpose: get command
-* Input  : i - command index 0..MAX_COMMANDS-1
+* Input  : i - command index [0..MAX_COMMANDS-1]
 * Output : -
 * Return : command or NULL
 * Notes  : -
@@ -436,16 +438,40 @@ LOCAL void setCommand(Command     *command,
 
 LOCAL const Command *getCommand(gint i)
 {
+  g_assert(i >= 0);
+  g_assert(i < MAX_COMMANDS);
+
+#if 0
   const Command *command = NULL;
   if ((command == NULL) && !isStringEmpty(pluginData.projectProperties.commands[i].title)) command = &pluginData.projectProperties.commands[i];
   if ((command == NULL) && !isStringEmpty(pluginData.configuration.commands[i].title)    ) command = &pluginData.configuration.commands[i];
 
   return command;
+#else
+  return !isStringEmpty(pluginData.configuration.commands[i].title) ? &pluginData.configuration.commands[i] : NULL;
+#endif
+}
+
+/***********************************************************************\
+* Name   : getProjectCommand
+* Purpose: get project specific command
+* Input  : i - command index [0..MAX_COMMANDS-1]
+* Output : -
+* Return : command or NULL
+* Notes  : -
+\***********************************************************************/
+
+LOCAL const Command *getProjectCommand(gint i)
+{
+  g_assert(i >= 0);
+  g_assert(i < MAX_COMMANDS);
+
+  return !isStringEmpty(pluginData.projectProperties.commands[i].title) ? &pluginData.projectProperties.commands[i] : NULL;
 }
 
 /***********************************************************************\
 * Name   : configurationLoadBoolean
-* Purpose: load configuration boolean
+* Purpose: load boolean value from configuration
 * Input  : boolean       - boolean variable
 *          configuration - configuration to load values from
 *          name          - value name
@@ -468,7 +494,7 @@ LOCAL void configurationLoadBoolean(gboolean    *boolean,
 
 /***********************************************************************\
 * Name   : configurationStringUpdate
-* Purpose: load configuration string
+* Purpose: load string value from configuration
 * Input  : string        - string variable
 *          configuration - configuration to load values from
 *          groupName     - group name
@@ -773,7 +799,7 @@ LOCAL void configurationSaveRegexList(GtkTreeModel *treeModel,
 
 /***********************************************************************\
 * Name   : configurationLoadColor
-* Purpose: load configuration color
+* Purpose: load color from configuration
 * Input  : rgba          - color RGBA variable
 *          configuration - configuration to load values from
 *          name          - value name
@@ -835,7 +861,6 @@ LOCAL void configurationLoad()
   GKeyFile *configuration = g_key_file_new();
 
   // load configuration
-fprintf(stderr,"%s:%d: %s\n",__FILE__,__LINE__,pluginData.configuration.filePath);
   g_key_file_load_from_file(configuration, pluginData.configuration.filePath, G_KEY_FILE_NONE, NULL);
 
   // get values
@@ -858,6 +883,7 @@ fprintf(stderr,"%s:%d: %s\n",__FILE__,__LINE__,pluginData.configuration.filePath
   configurationLoadBoolean  (&pluginData.configuration.autoSaveAll,            configuration, "autoSaveAll");
   configurationLoadBoolean  (&pluginData.configuration.autoShowFirstError,     configuration, "autoShowFirstError");
   configurationLoadBoolean  (&pluginData.configuration.autoShowFirstWarning,   configuration, "autoShowFirstWarning");
+fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
 
   // free resources
   g_key_file_free(configuration);
@@ -941,6 +967,7 @@ LOCAL void projectConfigurationLoad(GKeyFile *configuration)
 
   configurationLoadString(pluginData.projectProperties.errorRegEx,   configuration, "errorRegEx");
   configurationLoadString(pluginData.projectProperties.warningRegEx, configuration, "warningRegEx");
+fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
 }
 
 /***********************************************************************\
@@ -1002,6 +1029,13 @@ LOCAL void setEnableToolbar(gboolean enabled)
     if (pluginData.widgets.buttons.commands[i] != NULL)
     {
       gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.commands[i]), enabled);
+    }
+  }
+  for (guint i = 0; i < MAX_COMMANDS; i++)
+  {
+    if (pluginData.widgets.buttons.projectCommands[i] != NULL)
+    {
+      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]), enabled);
     }
   }
   setEnableAbort(!enabled);
@@ -1181,13 +1215,13 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
   UNUSED_VARIABLE(widgetLanguage);
   UNUSED_VARIABLE(widgetGroup);
 
-  const gchar *regex = gtk_entry_get_text(GTK_ENTRY(widgetRegex));
-  if (!EMPTY(regex))
+  const gchar *regexString = gtk_entry_get_text(GTK_ENTRY(widgetRegex));
+  if (!EMPTY(regexString))
   {
     // validate regular expression, enable/disable ok-button
     GRegex      *regex;
     GMatchInfo  *matchInfo;
-    regex = g_regex_new(gtk_entry_get_text(GTK_ENTRY(widgetRegex)),
+    regex = g_regex_new(regexString,
                         0, // compile_optipns
                         0, // match option
                         NULL // error
@@ -2535,9 +2569,6 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
   GtkTreeIter treeIter;
   if (gtk_tree_model_get_iter_first(treeModel, &treeIter))
   {
-    // get current document (if possible)
-    GeanyDocument *document = document_get_current();
-
     GString *matchDirectoryPathString = g_string_new(NULL);
     GString *matchFilePathString      = g_string_new(NULL);
     uint    matchLineNumber;
@@ -2560,10 +2591,12 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
       g_assert(checkRegEx != NULL);
 
 //fprintf(stderr,"%s:%d: checkRegExLanguage=%s\n",__FILE__,__LINE__,checkRegExLanguage);
-      GeanyFiletype *fileType = filetypes_lookup_by_name(checkRegExLanguage);
 //fprintf(stderr,"%s:%d: %d %d\n",__FILE__,__LINE__,document->file_type->id,fileType->id);
 
 #if 0
+      // get current document (if possible)
+      GeanyDocument *document = document_get_current();
+      GeanyFiletype *fileType = filetypes_lookup_by_name(checkRegExLanguage);
       if (   (document == NULL)
           || (fileType == NULL)
           || (document->file_type == NULL)
@@ -3383,6 +3416,38 @@ LOCAL void onMenuItemCommand(GtkWidget *widget, gpointer data)
 }
 
 /***********************************************************************\
+* Name   : onMenuItemProjectCommand
+* Purpose: menu item callbacks
+* Input  : widget - widget (not used)
+*          data   - user data (not used)
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onMenuItemProjectCommand(GtkWidget *widget, gpointer data)
+{
+  guint i = GPOINTER_TO_UINT(data);
+
+  g_assert(i < MAX_COMMANDS);
+
+  UNUSED_VARIABLE(widget);
+
+  const Command *command = getProjectCommand(i);
+  if (command != NULL)
+  {
+    setEnableToolbar(FALSE);
+    showBuildMessagesTab();
+    executeCommand(command->commandLine,
+                   command->workingDirectory,
+                   NULL,
+                   pluginData.attachedDockerContainerId,
+                   command->parseOutput
+                  );
+  }
+}
+
+/***********************************************************************\
 * Name   : onMenuItemShowPrevError
 * Purpose:
 * Input  : -
@@ -3763,15 +3828,16 @@ LOCAL void onMenuItemProjectPreferences(GtkWidget *widget, gpointer data)
 }
 
 /***********************************************************************\
-* Name   : onMenuItemPluginConfiguration
-* Purpose:
-* Input  : -
+* Name   : onMenuItemConfiguration
+* Purpose: open plugin configuration dialog
+* Input  : widget - widget (unused)
+*          data   - user data (unused)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemPluginConfiguration(GtkWidget *widget, gpointer data)
+LOCAL void onMenuItemConfiguration(GtkWidget *widget, gpointer data)
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(data);
@@ -4145,6 +4211,19 @@ LOCAL void updateEnableToolbarButtons()
       isFirst = FALSE;
     }
   }
+  for (guint i = 0; i < MAX_COMMANDS; i++)
+  {
+    const Command *command = getProjectCommand(i);
+    if (command != NULL)
+    {
+      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]),
+                                  isFirst
+                               || !command->runInDockerContainer
+                               || (pluginData.attachedDockerContainerId != NULL)
+                              );
+      isFirst = FALSE;
+    }
+  }
   gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.abort), FALSE);
 }
 
@@ -4168,6 +4247,14 @@ LOCAL void updateToolbarButtons()
     }
     pluginData.widgets.buttons.commands[i] = NULL;
   }
+  for (guint i = 0; i < MAX_COMMANDS; i++)
+  {
+    if (pluginData.widgets.buttons.projectCommands[i] != NULL)
+    {
+      gtk_widget_destroy(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]));
+    }
+    pluginData.widgets.buttons.projectCommands[i] = NULL;
+  }
   if (pluginData.widgets.buttons.abort != NULL)
   {
     gtk_widget_destroy(GTK_WIDGET(pluginData.widgets.buttons.abort));
@@ -4182,7 +4269,9 @@ LOCAL void updateToolbarButtons()
     {
       if (command->showButton)
       {
-        pluginData.widgets.buttons.commands[i] = isFirst ? gtk_menu_tool_button_new(NULL, command->title) : gtk_tool_button_new(NULL, command->title);
+        pluginData.widgets.buttons.commands[i] = isFirst
+                                                   ? gtk_menu_tool_button_new(NULL, command->title)
+                                                   : gtk_tool_button_new(NULL, command->title);
         plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
         gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
         plugin_signal_connect(geany_plugin,
@@ -4190,6 +4279,30 @@ LOCAL void updateToolbarButtons()
                               "clicked",
                               FALSE,
                               G_CALLBACK(onMenuItemCommand),
+                              GUINT_TO_POINTER(i)
+                             );
+
+        isFirst = FALSE;
+      }
+    }
+  }
+  for (guint i = 0; i < MAX_COMMANDS; i++)
+  {
+    const Command *command = getProjectCommand(i);
+    if (command != NULL)
+    {
+      if (command->showButton)
+      {
+        pluginData.widgets.buttons.projectCommands[i] = isFirst
+                                                          ? gtk_menu_tool_button_new(NULL, command->title)
+                                                          : gtk_tool_button_new(NULL, command->title);
+        plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.projectCommands[i]));
+        gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]));
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(pluginData.widgets.buttons.projectCommands[i]),
+                              "clicked",
+                              FALSE,
+                              G_CALLBACK(onMenuItemProjectCommand),
                               GUINT_TO_POINTER(i)
                              );
 
@@ -4237,6 +4350,17 @@ LOCAL void updateEnableToolbarMenuItems()
                               );
     }
   }
+  for (guint i = 0; i < MAX_COMMANDS; i++)
+  {
+    const Command *command = getProjectCommand(i);
+    if (command != NULL)
+    {
+      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.projectCommands[i]),
+                                  !command->runInDockerContainer
+                               || (pluginData.attachedDockerContainerId != NULL)
+                              );
+    }
+  }
   gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.abort), FALSE);
 }
 
@@ -4255,6 +4379,8 @@ LOCAL void updateToolbarMenuItems()
   {
     GtkWidget *menuItem;
 
+fprintf(stderr,"%s:%d: xxxxxxxxxxxxxxxxxxxxxx\n",__FILE__,__LINE__);
+    // add command menu items
     for (guint i = 0; i < MAX_COMMANDS; i++)
     {
       const Command *command = getCommand(i);
@@ -4280,9 +4406,41 @@ LOCAL void updateToolbarMenuItems()
       }
     }
 
+    // add separator
     menuItem = gtk_separator_menu_item_new();
     gtk_container_add(GTK_CONTAINER(menu), menuItem);
 
+    // add project command menu items
+    for (guint i = 0; i < MAX_COMMANDS; i++)
+    {
+      const Command *command = getProjectCommand(i);
+      if (command != NULL)
+      {
+        if (command->showMenuItem)
+        {
+          pluginData.widgets.menuItems.projectCommands[i] = gtk_menu_item_new_with_mnemonic(command->title);
+          g_assert(pluginData.widgets.menuItems.projectCommands[i] != NULL);
+          gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.projectCommands[i]);
+          plugin_signal_connect(geany_plugin,
+                                G_OBJECT(pluginData.widgets.menuItems.projectCommands[i]),
+                                "activate",
+                                FALSE,
+                                G_CALLBACK(onMenuItemProjectCommand),
+                                GUINT_TO_POINTER(i)
+                               );
+        }
+        else
+        {
+          pluginData.widgets.menuItems.projectCommands[i] = NULL;
+        }
+      }
+    }
+
+    // add separator
+    menuItem = gtk_separator_menu_item_new();
+    gtk_container_add(GTK_CONTAINER(menu), menuItem);
+
+    // add general commands
     pluginData.widgets.menuItems.abort = gtk_menu_item_new_with_mnemonic(_("Abort"));
     gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.abort), FALSE);
     gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.abort);
@@ -4380,7 +4538,7 @@ LOCAL void updateToolbarMenuItems()
                           G_OBJECT(pluginData.widgets.menuItems.configuration),
                           "activate",
                           FALSE,
-                          G_CALLBACK(onMenuItemPluginConfiguration),
+                          G_CALLBACK(onMenuItemConfiguration),
                           NULL
                          );
   }
@@ -5255,7 +5413,7 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
 
   GtkWidget *tab;
 
-  // commands
+  // create command widgets
   tab = addTab(notebook,"Commands");
   g_assert(tab != NULL);
   {
@@ -5322,7 +5480,7 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
     addBox(GTK_BOX(tab), FALSE, GTK_WIDGET(grid));
   }
 
-  // regular expression list
+  // create regular expression list widgets
   tab = addTab(notebook,"Regular expressions");
   g_assert(tab != NULL);
   {
