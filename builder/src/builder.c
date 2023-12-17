@@ -214,7 +214,7 @@ LOCAL struct
   {
     gchar        *filePath;
 
-    Command      commands[MAX_COMMANDS];
+    GList        *commandList;
     GtkListStore *regexStore;
 
     gboolean     errorIndicators;
@@ -428,6 +428,133 @@ LOCAL void setCommand(Command     *command,
 }
 
 /***********************************************************************\
+* Name   : freeCommand
+* Purpose: free command
+* Input  : command - command
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void freeCommand(Command *command)
+{
+  g_assert(command != NULL);
+
+  g_free(command->workingDirectory);
+  g_free(command->commandLine);
+  g_free(command->title);
+
+  free(command);
+}
+
+/***********************************************************************\
+* Name   : addCommand
+* Purpose: add command values
+* Input  : commandList          - command list
+*          title                - title
+*          commandLine          - commandLine
+*          workingDirectory     - title
+*          showButton           - show button
+*          showMenuItem         - show in menu
+*          inputCustomText      - input custom text
+*          runInDockerContainer - run in docker container
+*          parseOutput          - parse output
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void addCommand(GList       **commandList,
+                      const gchar *title,
+                      const gchar *commandLine,
+                      const gchar *workingDirectory,
+                      gboolean    showButton,
+                      gboolean    showMenuItem,
+                      gboolean    inputCustomText,
+                      gboolean    runInDockerContainer,
+                      gboolean    parseOutput
+                     )
+{
+  Command *command = (Command*)malloc(sizeof(Command));
+  g_assert(command != NULL);
+
+  command->title                = g_strdup(title);
+  command->commandLine          = g_strdup(commandLine);
+  command->workingDirectory     = g_strdup(workingDirectory);
+  command->showButton           = showButton;
+  command->showMenuItem         = showMenuItem;
+  command->inputCustomText      = inputCustomText;
+  command->runInDockerContainer = runInDockerContainer;
+  command->parseOutput          = parseOutput;
+
+  (*commandList) = g_list_append(*commandList, command);
+}
+
+/***********************************************************************\
+* Name   : updateCommand
+* Purpose: update command values
+* Input  : commandList          - command list
+*          title                - title
+*          commandLine          - commandLine
+*          workingDirectory     - title
+*          showButton           - show button
+*          showMenuItem         - show in menu
+*          inputCustomText      - input custom text
+*          runInDockerContainer - run in docker container
+*          parseOutput          - parse output
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void updateCommand(const GList *commandList,
+                         const gchar *title,
+                         const gchar *commandLine,
+                         const gchar *workingDirectory,
+                         gboolean    showButton,
+                         gboolean    showMenuItem,
+                         gboolean    inputCustomText,
+                         gboolean    runInDockerContainer,
+                         gboolean    parseOutput
+                        )
+{
+  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
+  {
+    Command *command = (Command*)commandNode->data;
+    g_assert(command != NULL);
+
+fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
+// TODO:
+    command->title                = g_strdup(title);
+    command->commandLine          = g_strdup(commandLine);
+    command->workingDirectory     = g_strdup(workingDirectory);
+    command->showButton           = showButton;
+    command->showMenuItem         = showMenuItem;
+    command->inputCustomText      = inputCustomText;
+    command->runInDockerContainer = runInDockerContainer;
+    command->parseOutput          = parseOutput;
+  }
+}
+
+/***********************************************************************\
+* Name   : freeCommandList
+* Purpose: free command list
+* Input  : commandList - command list
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+// TODO: requred?
+LOCAL void freeCommandList(GList **commandList)
+{
+  g_assert(commandList != NULL);
+
+  g_list_free_full(g_steal_pointer(commandList),freeCommand);
+}
+
+#if 0
+/***********************************************************************\
 * Name   : getCommand
 * Purpose: get command
 * Input  : i - command index [0..MAX_COMMANDS-1]
@@ -441,16 +568,9 @@ LOCAL const Command *getCommand(gint i)
   g_assert(i >= 0);
   g_assert(i < MAX_COMMANDS);
 
-#if 0
-  const Command *command = NULL;
-  if ((command == NULL) && !isStringEmpty(pluginData.projectProperties.commands[i].title)) command = &pluginData.projectProperties.commands[i];
-  if ((command == NULL) && !isStringEmpty(pluginData.configuration.commands[i].title)    ) command = &pluginData.configuration.commands[i];
-
-  return command;
-#else
   return !isStringEmpty(pluginData.configuration.commands[i].title) ? &pluginData.configuration.commands[i] : NULL;
-#endif
 }
+#endif
 
 /***********************************************************************\
 * Name   : getProjectCommand
@@ -519,22 +639,21 @@ LOCAL void configurationLoadString(GString     *string,
 /***********************************************************************\
 * Name   : configurationLoadCommand
 * Purpose: load command from configuration
-* Input  : command       - command variable
-*          configuration - configuration to load values from
+* Input  : configuration - configuration to load values from
 *          name          - value name
 * Output : -
-* Return : -
+* Return : command or NULL
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configurationLoadCommand(Command     *command,
-                                    GKeyFile    *configuration,
-                                    const gchar *name
-                                   )
+LOCAL Command *configurationLoadCommand(GKeyFile    *configuration,
+                                        const gchar *name
+                                       )
 {
-  g_assert(command != NULL);
   g_assert(configuration != NULL);
   g_assert(name != NULL);
+
+  Command *command = NULL;
 
   gchar *string = g_key_file_get_string(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL);
   if (string != NULL)
@@ -543,11 +662,11 @@ LOCAL void configurationLoadCommand(Command     *command,
     g_assert(tokens != NULL);
     guint tokenCount = g_strv_length(tokens);
 
-    g_free(command->title);
+    command = (Command*)malloc(sizeof(Command));
+    g_assert(command != NULL);
+
     command->title                = (tokenCount >= 1) ? stringUnescape(tokens[0],'\\') : NULL;
-    g_free(command->commandLine);
     command->commandLine          = (tokenCount >= 2) ? stringUnescape(tokens[1],'\\') : NULL;
-    g_free(command->workingDirectory);
     command->workingDirectory     = (tokenCount >= 3) ? stringUnescape(tokens[2],'\\') : NULL;
     command->showButton           = (tokenCount >= 4) ? stringEquals(tokens[3],"yes")  : FALSE;
     command->showMenuItem         = (tokenCount >= 5) ? stringEquals(tokens[4],"yes")  : FALSE;
@@ -558,6 +677,8 @@ LOCAL void configurationLoadCommand(Command     *command,
     g_strfreev(tokens);
     g_free(string);
   }
+
+  return command;
 }
 
 /***********************************************************************\
@@ -863,16 +984,29 @@ LOCAL void configurationLoad()
   // load configuration
   g_key_file_load_from_file(configuration, pluginData.configuration.filePath, G_KEY_FILE_NONE, NULL);
 
-  // get values
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  // get commands
+  g_list_free_full(g_steal_pointer(&pluginData.configuration.commandList),freeCommand);
+  guint   i = 0;
+  Command *command;
+  do
   {
-    gchar name[64];
-
+    gchar    name[64];
     g_snprintf(name,sizeof(name),"command%d",i);
-    configurationLoadCommand(&pluginData.configuration.commands[i], configuration, name);
+    command = configurationLoadCommand(configuration, name);
+    if (command != NULL)
+    {
+//fprintf(stderr,"%s:%d: loaded global i=%d\n",__FILE__,__LINE__,i);
+      pluginData.configuration.commandList = g_list_append(pluginData.configuration.commandList, command);
+    }
+    i++;
   }
+  while (command != NULL);
+fprintf(stderr,"%s:%d: le3ngh=%d\n",__FILE__,__LINE__,g_list_length(pluginData.configuration.commandList));
+
+  // get regular expressions
   configurationLoadRegexList(pluginData.configuration.regexStore,              configuration, "regexs");
 
+  // get values
   configurationLoadBoolean  (&pluginData.configuration.errorIndicators,        configuration, "errorIndicators");
   configurationLoadColor    (&pluginData.configuration.errorIndicatorColor,    configuration, "errorIndicatorColor");
   configurationLoadBoolean  (&pluginData.configuration.warningIndicators,      configuration, "warningIndicators");
@@ -902,15 +1036,24 @@ LOCAL void configurationSave()
 {
   GKeyFile *configuration = g_key_file_new();
 
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  // save commands
+  guint i = 0;
+  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
   {
-    gchar name[64];
+    Command *command = (Command*)commandNode->data;
+    g_assert(command != NULL);
 
+    gchar name[64];
     g_snprintf(name,sizeof(name),"command%d",i);
-    configurationSaveCommand(&pluginData.configuration.commands[i], configuration, name);
+    configurationSaveCommand(command, configuration, name);
+
+    i++;
   }
+
+  // save regular expressions
   configurationSaveRegexList(GTK_TREE_MODEL(pluginData.configuration.regexStore), configuration, "regexs");
 
+  // save values
   g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "errorIndicators",pluginData.configuration.errorIndicators);
   configurationSaveColor(&pluginData.configuration.errorIndicatorColor,   configuration, "errorIndicatorColor");
   g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "warningIndicators",pluginData.configuration.warningIndicators);
@@ -934,7 +1077,7 @@ LOCAL void configurationSave()
   }
   g_free(configurationDir);
 
-  // write configuration data to file
+  // write configuration data into file
   gchar *configurationData = g_key_file_to_data(configuration, NULL, NULL);
   utils_write_file(pluginData.configuration.filePath, configurationData);
   g_free(configurationData);
@@ -962,7 +1105,8 @@ LOCAL void projectConfigurationLoad(GKeyFile *configuration)
     gchar name[64];
 
     g_snprintf(name,sizeof(name),"command%d",i);
-    configurationLoadCommand(&pluginData.projectProperties.commands[i], configuration, name);
+fprintf(stderr,"%s:%d: i=%d\n",__FILE__,__LINE__,i);
+// TODO:    configurationLoadCommand(&pluginData.projectProperties.commands[i], configuration, name);
   }
 
   configurationLoadString(pluginData.projectProperties.errorRegEx,   configuration, "errorRegEx");
@@ -3395,24 +3539,19 @@ LOCAL void executeCommandAbort()
 
 LOCAL void onMenuItemCommand(GtkWidget *widget, gpointer data)
 {
-  guint i = GPOINTER_TO_UINT(data);
-
-  g_assert(i < MAX_COMMANDS);
+  const Command *command = (Command*)data;
+  g_assert(command != NULL);
 
   UNUSED_VARIABLE(widget);
 
-  const Command *command = getCommand(i);
-  if (command != NULL)
-  {
-    setEnableToolbar(FALSE);
-    showBuildMessagesTab();
-    executeCommand(command->commandLine,
-                   command->workingDirectory,
-                   NULL,
-                   pluginData.attachedDockerContainerId,
-                   command->parseOutput
-                  );
-  }
+  setEnableToolbar(FALSE);
+  showBuildMessagesTab();
+  executeCommand(command->commandLine,
+                 command->workingDirectory,
+                 NULL,
+                 pluginData.attachedDockerContainerId,
+                 command->parseOutput
+                );
 }
 
 /***********************************************************************\
@@ -4131,6 +4270,8 @@ LOCAL void onKeyBinding(guint keyId)
 {
   if ((KEY_BINDING_COMMAND <= keyId) && (keyId <= KEY_BINDING_COMMAND+MAX_COMMANDS))
   {
+// TODO:
+#if 0
     const Command *command = getCommand(keyId-KEY_BINDING_COMMAND);
     if (command != NULL)
     {
@@ -4143,6 +4284,7 @@ LOCAL void onKeyBinding(guint keyId)
                      command->parseOutput
                     );
     }
+#endif
   }
   else
   {
@@ -4198,18 +4340,19 @@ LOCAL void onKeyBinding(guint keyId)
 LOCAL void updateEnableToolbarButtons()
 {
   gboolean isFirst = TRUE;
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  guint    i       = 0;
+  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
   {
-    const Command *command = getCommand(i);
-    if (command != NULL)
-    {
-      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.commands[i]),
-                                  isFirst
-                               || !command->runInDockerContainer
-                               || (pluginData.attachedDockerContainerId != NULL)
-                              );
-      isFirst = FALSE;
-    }
+    Command *command = (Command*)commandNode->data;
+    g_assert(command != NULL);
+
+    gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.commands[i]),
+                                isFirst
+                             || !command->runInDockerContainer
+                             || (pluginData.attachedDockerContainerId != NULL)
+                            );
+    isFirst = FALSE;
+    i++;
   }
   for (guint i = 0; i < MAX_COMMANDS; i++)
   {
@@ -4222,6 +4365,7 @@ LOCAL void updateEnableToolbarButtons()
                                || (pluginData.attachedDockerContainerId != NULL)
                               );
       isFirst = FALSE;
+    i++;
     }
   }
   gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.abort), FALSE);
@@ -4262,28 +4406,29 @@ LOCAL void updateToolbarButtons()
   pluginData.widgets.buttons.abort = NULL;
 
   gboolean isFirst = TRUE;
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  guint    i       = 0;
+  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
   {
-    const Command *command = getCommand(i);
-    if (command != NULL)
-    {
-      if (command->showButton)
-      {
-        pluginData.widgets.buttons.commands[i] = isFirst
-                                                   ? gtk_menu_tool_button_new(NULL, command->title)
-                                                   : gtk_tool_button_new(NULL, command->title);
-        plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
-        gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
-        plugin_signal_connect(geany_plugin,
-                              G_OBJECT(pluginData.widgets.buttons.commands[i]),
-                              "clicked",
-                              FALSE,
-                              G_CALLBACK(onMenuItemCommand),
-                              GUINT_TO_POINTER(i)
-                             );
+    Command *command = (Command*)commandNode->data;
+    g_assert(command != NULL);
 
-        isFirst = FALSE;
-      }
+    if (command->showButton)
+    {
+      pluginData.widgets.buttons.commands[i] = isFirst
+                                                 ? gtk_menu_tool_button_new(NULL, command->title)
+                                                 : gtk_tool_button_new(NULL, command->title);
+      plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
+      gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(pluginData.widgets.buttons.commands[i]),
+                            "clicked",
+                            FALSE,
+                            G_CALLBACK(onMenuItemCommand),
+                            command
+                           );
+
+      isFirst = FALSE;
+      i++;
     }
   }
   for (guint i = 0; i < MAX_COMMANDS; i++)
@@ -4339,16 +4484,17 @@ LOCAL void updateToolbarButtons()
 
 LOCAL void updateEnableToolbarMenuItems()
 {
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  guint i = 0;
+  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
   {
-    const Command *command = getCommand(i);
-    if (command != NULL)
-    {
-      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.commands[i]),
-                                  !command->runInDockerContainer
-                               || (pluginData.attachedDockerContainerId != NULL)
-                              );
-    }
+    Command *command = (Command*)commandNode->data;
+    g_assert(command != NULL);
+
+    gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.commands[i]),
+                                !command->runInDockerContainer
+                             || (pluginData.attachedDockerContainerId != NULL)
+                            );
+    i++;
   }
   for (guint i = 0; i < MAX_COMMANDS; i++)
   {
@@ -4377,32 +4523,32 @@ LOCAL void updateToolbarMenuItems()
 {
   GtkWidget *menu = gtk_menu_new();
   {
+    guint     i = 0;
     GtkWidget *menuItem;
 
 fprintf(stderr,"%s:%d: xxxxxxxxxxxxxxxxxxxxxx\n",__FILE__,__LINE__);
     // add command menu items
-    for (guint i = 0; i < MAX_COMMANDS; i++)
+    for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
     {
-      const Command *command = getCommand(i);
-      if (command != NULL)
+      Command *command = (Command*)commandNode->data;
+      g_assert(command != NULL);
+
+      if (command->showMenuItem)
       {
-        if (command->showMenuItem)
-        {
-          pluginData.widgets.menuItems.commands[i] = gtk_menu_item_new_with_mnemonic(command->title);
-          g_assert(pluginData.widgets.menuItems.commands[i] != NULL);
-          gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.commands[i]);
-          plugin_signal_connect(geany_plugin,
-                                G_OBJECT(pluginData.widgets.menuItems.commands[i]),
-                                "activate",
-                                FALSE,
-                                G_CALLBACK(onMenuItemCommand),
-                                GUINT_TO_POINTER(i)
-                               );
-        }
-        else
-        {
-          pluginData.widgets.menuItems.commands[i] = NULL;
-        }
+        pluginData.widgets.menuItems.commands[i] = gtk_menu_item_new_with_mnemonic(command->title);
+        g_assert(pluginData.widgets.menuItems.commands[i] != NULL);
+        gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.commands[i]);
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(pluginData.widgets.menuItems.commands[i]),
+                              "activate",
+                              FALSE,
+                              G_CALLBACK(onMenuItemCommand),
+                              GUINT_TO_POINTER(i)
+                             );
+      }
+      else
+      {
+        pluginData.widgets.menuItems.commands[i] = NULL;
       }
     }
 
@@ -5332,14 +5478,14 @@ LOCAL void onConfigureResponse(GtkDialog *dialog, gint response, gpointer data)
   UNUSED_VARIABLE(data);
 
   // check if configuration should be saved/applied
-  if ((response != GTK_RESPONSE_OK)
+  if (   (response != GTK_RESPONSE_OK)
       && (response != GTK_RESPONSE_APPLY)
      )
   {
     return;
   }
 
-  // get values
+  // update commands
   gboolean isFirst = TRUE;
   for (guint i = 0; i < MAX_COMMANDS; i++)
   {
@@ -5354,6 +5500,9 @@ LOCAL void onConfigureResponse(GtkDialog *dialog, gint response, gpointer data)
     g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
     g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
 
+fprintf(stderr,"%s:%d: \n",__FILE__,__LINE__);
+// TODO:
+#if 0
     setCommand(&pluginData.configuration.commands[i],
                gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), titleName))),
                gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), commandLineName))),
@@ -5364,10 +5513,12 @@ LOCAL void onConfigureResponse(GtkDialog *dialog, gint response, gpointer data)
                gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), runInDockerContainerName))),
                gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), parseOutputName)))
               );
+#endif
 
     isFirst = FALSE;
   }
 
+  // update values
   GdkRGBA color;
   gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(g_object_get_data(G_OBJECT(dialog), "error_indicator_color")), &color);
   pluginData.configuration.errorIndicators     = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), "error_indicators")));
@@ -5611,34 +5762,35 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
   gtk_widget_show_all(GTK_WIDGET(notebook));
 
   // set values
+  guint    i       = 0;
   gboolean isFirst = TRUE;
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
   {
-    const Command *command = getCommand(i);
-    if (command != NULL)
-    {
-      char titleName[64],commandLineName[64],workingDirectoryName[64],showButtonName[64],showMenuItemName[64],inputCustomTextName[64],runInDockerContainerName[64],parseOutputName[64];
+    Command *command = (Command*)commandNode->data;
+    g_assert(command != NULL);
 
-      g_snprintf(titleName,sizeof(titleName),"command_title%d",i);
-      g_snprintf(commandLineName,sizeof(commandLineName),"command_command_line%d",i);
-      g_snprintf(workingDirectoryName,sizeof(workingDirectoryName),"command_working_directory%d",i);
-      g_snprintf(showButtonName,sizeof(showButtonName),"command_show_button%d",i);
-      g_snprintf(showMenuItemName,sizeof(showMenuItemName),"command_show_menu_item%d",i);
-      g_snprintf(inputCustomTextName,sizeof(inputCustomTextName),"command_input_custom_text%d",i);
-      g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
-      g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
+    char titleName[64],commandLineName[64],workingDirectoryName[64],showButtonName[64],showMenuItemName[64],inputCustomTextName[64],runInDockerContainerName[64],parseOutputName[64];
 
-      gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), titleName)), command->title);
-      gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), commandLineName)), command->commandLine);
-      gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), workingDirectoryName)), command->workingDirectory);
-      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), showButtonName)), command->showButton || isFirst);
-      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), showMenuItemName)), command->showMenuItem);
-      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), inputCustomTextName)), command->inputCustomText);
-      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), runInDockerContainerName)), command->runInDockerContainer);
-      gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), parseOutputName)), command->parseOutput);
+    g_snprintf(titleName,sizeof(titleName),"command_title%d",i);
+    g_snprintf(commandLineName,sizeof(commandLineName),"command_command_line%d",i);
+    g_snprintf(workingDirectoryName,sizeof(workingDirectoryName),"command_working_directory%d",i);
+    g_snprintf(showButtonName,sizeof(showButtonName),"command_show_button%d",i);
+    g_snprintf(showMenuItemName,sizeof(showMenuItemName),"command_show_menu_item%d",i);
+    g_snprintf(inputCustomTextName,sizeof(inputCustomTextName),"command_input_custom_text%d",i);
+    g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
+    g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
 
-      isFirst = FALSE;
-    }
+    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), titleName)), command->title);
+    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), commandLineName)), command->commandLine);
+    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), workingDirectoryName)), command->workingDirectory);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), showButtonName)), command->showButton || isFirst);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), showMenuItemName)), command->showMenuItem);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), inputCustomTextName)), command->inputCustomText);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), runInDockerContainerName)), command->runInDockerContainer);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), parseOutputName)), command->parseOutput);
+
+    isFirst = FALSE;
+i++;
   }
 
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), "error_indicators"         )), pluginData.configuration.errorIndicators);
@@ -5973,9 +6125,10 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer data)
                                                                   "builder.conf",
                                                                   NULL
                                                                  );
-  initCommands(pluginData.configuration.commands, MAX_COMMANDS);
-  setCommand(&pluginData.configuration.commands[0],"Build",DEFAULT_BUILD_COMMAND,"%p",TRUE,TRUE,FALSE,FALSE,TRUE);
-  setCommand(&pluginData.configuration.commands[1],"Clean",DEFAULT_CLEAN_COMMAND,"%p",TRUE,TRUE,FALSE,FALSE,FALSE);
+  pluginData.configuration.commandList = NULL;
+fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
+  addCommand(&pluginData.configuration.commandList,"Build",DEFAULT_BUILD_COMMAND,"%p",TRUE,TRUE,FALSE,FALSE,TRUE);
+  addCommand(&pluginData.configuration.commandList,"Clean",DEFAULT_CLEAN_COMMAND,"%p",TRUE,TRUE,FALSE,FALSE,FALSE);
   pluginData.configuration.regexStore               = gtk_list_store_new(MODEL_REGEX_COUNT,
                                                                          G_TYPE_STRING,  // language
                                                                          G_TYPE_STRING,  // group
@@ -6094,7 +6247,8 @@ LOCAL void cleanup(GeanyPlugin *plugin, gpointer data)
   g_string_free(pluginData.projectProperties.warningRegEx, TRUE);
   g_string_free(pluginData.projectProperties.errorRegEx, TRUE);
   doneCommands(pluginData.projectProperties.commands,MAX_COMMANDS);
-  doneCommands(pluginData.configuration.commands,MAX_COMMANDS);
+fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
+// TODO:  doneCommands(pluginData.configuration.commands,MAX_COMMANDS);
   g_free(pluginData.configuration.filePath);
 }
 
