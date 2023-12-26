@@ -31,7 +31,7 @@
 
 #include <gdk/gdkkeysyms.h>
 
-#define LOCAL static
+#include "builder.h"
 
 /****************** Conditional compilation switches *******************/
 
@@ -47,11 +47,6 @@ typedef GPtrArray StringStack;
 /***************************** Variables *******************************/
 
 /****************************** Macros *********************************/
-#define INLINE inline
-#define LOCAL_INLINE static inline
-#define UNUSED_VARIABLE(name) (void)name
-
-#define ARRAY_SIZE(array) (sizeof(array)/sizeof(array[0]))
 
 /***************************** Forwards ********************************/
 
@@ -60,29 +55,45 @@ typedef GPtrArray StringStack;
 /***********************************************************************\
 * Name   : stringEquals
 * Purpose: compare if strings are equal
-* Input  : s1,s2 - strings
+* Input  : string1,string2 - strings
 * Output : -
 * Return : TRUE iff equals
 * Notes  : -
 \***********************************************************************/
 
-static INLINE gboolean stringEquals(const gchar *s1, const gchar *s2)
+static INLINE gboolean stringEquals(const gchar *string1, const gchar *string2)
 {
-  return (s1 == s2) || ((s1 != NULL) && (s2 != NULL) && (strcmp(s1,s2) == 0));
+  return (string1 == string2) || ((string1 != NULL) && (string2 != NULL) && (strcmp(string1,string2) == 0));
 }
 
 /***********************************************************************\
-* Name   : isStringEmpty
+* Name   : stringIsEmpty
 * Purpose: check if string is empty
-* Input  : s - string
+* Input  : string - string
 * Output : -
 * Return : TRUE iff empty
 * Notes  : -
 \***********************************************************************/
 
-static INLINE gboolean isStringEmpty(const gchar *s)
+static INLINE gboolean stringIsEmpty(const gchar *string)
 {
-  return (s == NULL) || (s[0] == '\0');
+  return (string == NULL) || (string[0] == '\0');
+}
+
+/***********************************************************************\
+* Name   : stringClear
+* Purpose: clear string
+* Input  : string - string
+* Output : -
+* Return : string
+* Notes  : -
+\***********************************************************************/
+
+static INLINE gchar* stringClear(gchar *string)
+{
+  if (string != NULL) string[0] = '\0';
+
+  return string;
 }
 
 /***********************************************************************\
@@ -128,6 +139,20 @@ gchar **stringSplit(const gchar *string,
                     char        escapeChar,
                     gint        maxTokens
                    );
+
+/***********************************************************************\
+* Name   : getAbsolutePath
+* Purpose: get absolute path from directory and file path
+* Input  : directory - directory (can be NULL)
+*          filePath  - file path
+* Output : -
+* Return : absolute file path
+* Notes  : -
+\***********************************************************************/
+
+gchar *getAbsolutePath(const gchar *directory,
+                       const gchar *filePath
+                      );
 
 /***********************************************************************\
 * Name   : string_stack_new
@@ -303,17 +328,19 @@ GtkWidget *addTab(GtkWidget *notebook, const char *title);
 
 /***********************************************************************\
 * Name   : newLabel
-* Purpose: add label widget
-* Input  : rootObject  - root object
+* Purpose: new label widget
+* Input  : widget      - widget variable or NULL
+*          rootObject  - root object
 *          name        - property value name
 *          text        - entry label text
 *          tooltipText - entry tooltip text
 * Output : -
-* Return : -
+* Return : widget
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newLabel(GObject     *rootObject,
+GtkWidget *newLabel(GtkWidget   **widget,
+                    GObject     *rootObject,
                     const gchar *name,
                     const gchar *text,
                     const gchar *tooltipText
@@ -321,24 +348,7 @@ GtkWidget *newLabel(GObject     *rootObject,
 
 /***********************************************************************\
 * Name   : newView
-* Purpose: add text view widget
-* Input  : rootObject  - root object
-*          name        - property value name
-*          text        - entry label text
-*          tooltipText - entry tooltip text
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-GtkWidget *newView(GObject     *rootObject,
-                   const gchar *name,
-                   const gchar *tooltipText
-                  );
-
-/***********************************************************************\
-* Name   : newCheckButton
-* Purpose: add check button widget
+* Purpose: new text view widget
 * Input  : rootObject  - root object
 *          name        - property value name
 *          text        - entry label text
@@ -348,7 +358,26 @@ GtkWidget *newView(GObject     *rootObject,
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newCheckButton(GObject     *rootObject,
+GtkWidget *newView(GtkWidget   **widget,
+                   GObject     *rootObject,
+                   const gchar *name,
+                   const gchar *tooltipText
+                  );
+
+/***********************************************************************\
+* Name   : newCheckButton
+* Purpose: new check button widget
+* Input  : rootObject  - root object
+*          name        - property value name
+*          text        - entry label text
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : widget
+* Notes  : -
+\***********************************************************************/
+
+GtkWidget *newCheckButton(GtkWidget   **widget,
+                          GObject     *rootObject,
                           const gchar *name,
                           const gchar *text,
                           const gchar *tooltipText
@@ -356,18 +385,19 @@ GtkWidget *newCheckButton(GObject     *rootObject,
 
 /***********************************************************************\
 * Name   : newRadioButton
-* Purpose: add radio button widget
+* Purpose: new radio button widget
 * Input  : rootObject      - root object
 *          prevRadioButton - previouos radio button or NULL
 *          name            - property value name
 *          text            - entry label text
 *          tooltipText     - entry tooltip text
 * Output : -
-* Return : -
+* Return : widget
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newRadioButton(GObject     *rootObject,
+GtkWidget *newRadioButton(GtkWidget   **widget,
+                          GObject     *rootObject,
                           GtkWidget   *prevRadioButton,
                           const gchar *name,
                           const gchar *text,
@@ -375,89 +405,153 @@ GtkWidget *newRadioButton(GObject     *rootObject,
                          );
 
 /***********************************************************************\
+* Name   : newSpinButton
+* Purpose: new spin button widget
+* Input  : widget      - widget variable or NULL
+*          rootObject  - root object
+*          name        - property value name
+*          text        - entry label text
+*          tooltipText - entry tooltip text
+*          min,max     - min./max. value
+* Output : -
+* Return : widget
+* Notes  : -
+\***********************************************************************/
+
+GtkWidget *newSpinButton(GtkWidget   **widget,
+                         GObject     *rootObject,
+                         const gchar *name,
+                         const gchar *tooltipText,
+                         size_t      min,
+                         size_t      max
+                        );
+
+/***********************************************************************\
 * Name   : newCombo
-* Purpose: add combo widget
+* Purpose: new combo widget
 * Input  : rootObject  - root object
 *          name        - property value name
 *          tooltipText - entry tooltip text
 * Output : -
-* Return : -
+* Return : widget
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newCombo(GObject     *rootObject,
+GtkWidget *newCombo(GtkWidget   **widget,
+                    GObject     *rootObject,
                     const gchar *name,
                     const gchar *tooltipText
                    );
 
 /***********************************************************************\
 * Name   : newComboEntry
-* Purpose: add combo widget with entry
+* Purpose: new combo widget with entry
 * Input  : rootObject  - root object
 *          name        - property value name
 *          tooltipText - entry tooltip text
 * Output : -
-* Return : -
+* Return : widget
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newComboEntry(GObject     *rootObject,
+GtkWidget *newComboEntry(GtkWidget   **widget,
+                         GObject     *rootObject,
                          const gchar *name,
                          const gchar *tooltipText
                         );
 
 /***********************************************************************\
 * Name   : newEntry
-* Purpose: add text entry widget
-* Input  : rootObject  - root object
+* Purpose: new text entry widget
+* Input  : widget      - widget variable or NULL
+*          rootObject  - root object
 *          name        - property value name
 *          text        - entry label text
 *          tooltipText - entry tooltip text
 * Output : -
-* Return : -
+* Return : widget
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newEntry(GObject     *rootObject,
+GtkWidget *newEntry(GtkWidget   **widget,
+                    GObject     *rootObject,
                     const gchar *name,
                     const gchar *tooltipText
                    );
 
 /***********************************************************************\
+* Name   : newPasswordEntry
+* Purpose: new password entry widget
+* Input  : widget      - widget variable or NULL
+*          rootObject  - root object
+*          name        - property value name
+*          text        - entry label text
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : widget
+* Notes  : -
+\***********************************************************************/
+
+GtkWidget *newPasswordEntry(GtkWidget   **widget,
+                            GObject     *rootObject,
+                            const gchar *name,
+                            const gchar *tooltipText
+                           );
+
+/***********************************************************************\
 * Name   : newColorChooser
-* Purpose: add color chooser widget
+* Purpose: new color chooser widget
 * Input  : rootObject  - root object
 *          name        - property value name
 *          tooltipText - entry tooltip text
 * Output : -
-* Return : -
+* Return : widget
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newColorChooser(GObject     *rootObject,
+GtkWidget *newColorChooser(GtkWidget   **widget,
+                           GObject     *rootObject,
                            const gchar *name,
                            const gchar *tooltipText
                           );
 
 /***********************************************************************\
-* Name   : addDirectoryChooser
-* Purpose: add color chooser widget
+* Name   : newDirectoryChooser
+* Purpose: new directory chooser widget
 * Input  : rootObject  - root object
-*          entry       - entry widget to get/set directory path
+*          name        - property value name
 *          tooltipText - entry tooltip text
 * Output : -
-* Return : -
+* Return : widget
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newDirectoryChooser(GObject     *rootObject,
-                               GtkEntry    *entry,
+GtkWidget *newDirectoryChooser(GtkWidget   **widget,
+                               GObject     *rootObject,
+                               const gchar *name,
                                const gchar *tooltipText
                               );
 
 /***********************************************************************\
+* Name   : newFileChooser
+* Purpose: new file chooser widget
+* Input  : rootObject  - root object
+*          name        - property value name
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : widget
+* Notes  : -
+\***********************************************************************/
+
+GtkWidget *newFileChooser(GtkWidget   **widget,
+                          GObject     *rootObject,
+                          const gchar *name,
+                          const gchar *tooltipText
+                         );
+
+/***********************************************************************\
 * Name   : newWorkingDirectoryChooser
-* Purpose: add working directory chooser with directory select menu
+* Purpose: new working directory chooser with directory select menu
 * Input  : rootObject  - root object
 *          name        - property value name
 *          tooltipText - entry tooltip text
@@ -466,7 +560,8 @@ GtkWidget *newDirectoryChooser(GObject     *rootObject,
 * Notes  : -
 \***********************************************************************/
 
-GtkWidget *newWorkingDirectoryChooser(GObject     *rootObject,
+GtkWidget *newWorkingDirectoryChooser(GtkWidget   **widget,
+                                      GObject     *rootObject,
                                       const gchar *name,
                                       const gchar *tooltipText
                                      );
@@ -513,7 +608,6 @@ gboolean inputDialog(GtkWindow      *parentWindow,
 gchar *expandMacros(const GeanyProject  *project,
                     const GeanyDocument *document,
                     const gchar         *template,
-                    const gchar *wrapperCommand,
                     const gchar         *customTarget
                    );
 

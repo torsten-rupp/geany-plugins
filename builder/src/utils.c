@@ -9,6 +9,7 @@
 \***********************************************************************/
 
 /****************************** Includes *******************************/
+#include <stdlib.h>
 #include <string.h>
 #include <locale.h>
 #include <errno.h>
@@ -38,8 +39,8 @@
 
 /***************************** Datatypes *******************************/
 
-typedef void(*OutputHandler)(GString *line, GIOCondition ioCondition, gpointer data);
-typedef gboolean(*InputValidator)(const gchar *value, gpointer data);
+typedef void(*OutputHandler)(GString *line, GIOCondition ioCondition, gpointer userData);
+typedef gboolean(*InputValidator)(const gchar *value, gpointer userData);
 
 typedef GPtrArray StringStack;
 
@@ -124,6 +125,7 @@ gchar **stringSplit(const gchar *string,
   if (string != NULL)
   {
     tokens = g_ptr_array_new();
+    g_assert(tokens != NULL);
     n      = 0;
 
     // get token 1..n-1
@@ -170,6 +172,25 @@ gchar **stringSplit(const gchar *string,
   {
     return NULL;
   }
+}
+
+gchar *getAbsolutePath(const gchar *directory,
+                       const gchar *filePath
+                      )
+{
+  g_assert(filePath != NULL);
+
+  gchar *absoluteFilePath;
+  if (g_path_is_absolute(filePath) || stringIsEmpty(directory))
+  {
+    absoluteFilePath = g_strdup(filePath);
+  }
+  else
+  {
+    absoluteFilePath = g_strconcat(directory, G_DIR_SEPARATOR_S, filePath, NULL);
+  }
+
+  return absoluteFilePath;
 }
 
 StringStack *string_stack_new()
@@ -357,9 +378,9 @@ void clearIndicator(GeanyDocument *document, guint indicatorIndex)
   editor_indicator_clear(document->editor, indicatorIndex);
 }
 
-gboolean adjustTreeViewToEnd(gpointer data)
+gboolean adjustTreeViewToEnd(gpointer userData)
 {
-  GtkScrolledWindow *widget = (GtkScrolledWindow*)data;
+  GtkScrolledWindow *widget = (GtkScrolledWindow*)userData;
 
   g_assert(widget != NULL);
 
@@ -382,6 +403,9 @@ void showLastLine(GtkScrolledWindow *widget)
 
 GtkWidget *addBox(GtkBox *box, gboolean expand, GtkWidget *widget)
 {
+  g_assert(box != NULL);
+  g_assert(widget != NULL);
+
   gtk_box_pack_start(box, widget, expand, expand, 0);
 
   return widget;
@@ -389,6 +413,9 @@ GtkWidget *addBox(GtkBox *box, gboolean expand, GtkWidget *widget)
 
 GtkWidget *addGrid(GtkGrid *grid, guint row, guint column, guint columnSpan, GtkWidget *widget)
 {
+  g_assert(grid != NULL);
+  g_assert(widget != NULL);
+
   gtk_grid_attach(grid, widget, column, row, columnSpan, 1);
 
   return widget;
@@ -396,7 +423,11 @@ GtkWidget *addGrid(GtkGrid *grid, guint row, guint column, guint columnSpan, Gtk
 
 GtkWidget *addTab(GtkWidget *notebook, const char *title)
 {
+  g_assert(notebook != NULL);
+  g_assert(title != NULL);
+
   GtkWidget *label = gtk_label_new(title);
+  g_assert(label != NULL);
 
   GtkBox *vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
   g_assert(vbox != NULL);
@@ -406,7 +437,8 @@ GtkWidget *addTab(GtkWidget *notebook, const char *title)
   return GTK_WIDGET(vbox);
 }
 
-GtkWidget *newLabel(GObject     *rootObject,
+GtkWidget *newLabel(GtkWidget   **widget,
+                    GObject     *rootObject,
                     const gchar *name,
                     const gchar *text,
                     const gchar *tooltipText
@@ -419,6 +451,10 @@ GtkWidget *newLabel(GObject     *rootObject,
   //gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
   gtk_widget_set_halign(label, GTK_ALIGN_START);
 
+  if (widget != NULL)
+  {
+    (*widget) = label;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, label);
@@ -427,18 +463,24 @@ GtkWidget *newLabel(GObject     *rootObject,
   return label;
 }
 
-GtkWidget *newView(GObject     *rootObject,
-                    const gchar *name,
-                    const gchar *tooltipText
-                   )
+GtkWidget *newView(GtkWidget   **widget,
+                   GObject     *rootObject,
+                   const gchar *name,
+                   const gchar *tooltipText
+                  )
 {
   GtkWidget *entry;
 
   entry = gtk_entry_new();
+  g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
   g_object_set(entry, "editable", FALSE, "can_focus", FALSE, NULL);
   gtk_widget_set_hexpand(entry, TRUE);
 
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, entry);
@@ -447,7 +489,8 @@ GtkWidget *newView(GObject     *rootObject,
   return entry;
 }
 
-GtkWidget *newCheckButton(GObject     *rootObject,
+GtkWidget *newCheckButton(GtkWidget   **widget,
+                          GObject     *rootObject,
                           const gchar *name,
                           const gchar *text,
                           const gchar *tooltipText
@@ -456,9 +499,14 @@ GtkWidget *newCheckButton(GObject     *rootObject,
   GtkWidget *checkButton;
 
   checkButton = (text != NULL) ? gtk_check_button_new_with_label(text) : gtk_check_button_new();
+  g_assert(checkButton != NULL);
   gtk_widget_set_tooltip_text(checkButton, tooltipText);
   gtk_widget_set_halign(checkButton, GTK_ALIGN_START);
 
+  if (widget != NULL)
+  {
+    (*widget) = checkButton;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, checkButton);
@@ -467,7 +515,8 @@ GtkWidget *newCheckButton(GObject     *rootObject,
   return checkButton;
 }
 
-GtkWidget *newRadioButton(GObject     *rootObject,
+GtkWidget *newRadioButton(GtkWidget   **widget,
+                          GObject     *rootObject,
                           GtkWidget   *prevRadioButton,
                           const gchar *name,
                           const gchar *text,
@@ -480,6 +529,10 @@ GtkWidget *newRadioButton(GObject     *rootObject,
   gtk_widget_set_tooltip_text(radioButton, tooltipText);
   gtk_widget_set_halign(radioButton, GTK_ALIGN_START);
 
+  if (widget != NULL)
+  {
+    (*widget) = radioButton;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, radioButton);
@@ -488,17 +541,26 @@ GtkWidget *newRadioButton(GObject     *rootObject,
   return radioButton;
 }
 
-GtkWidget *newCombo(GObject     *rootObject,
-                    const gchar *name,
-                    const gchar *tooltipText
-                   )
+GtkWidget *newSpinButton(GtkWidget   **widget,
+                         GObject     *rootObject,
+                         const gchar *name,
+                         const gchar *tooltipText,
+                         size_t      min,
+                         size_t      max
+                        )
 {
   GtkWidget *entry;
 
-  entry = gtk_combo_box_text_new();
+  entry = gtk_spin_button_new_with_range((gdouble)min, (gdouble)max, 1.0);
+  g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
-  gtk_widget_set_hexpand(entry, TRUE);
+  gtk_spin_button_set_numeric(GTK_SPIN_BUTTON(entry), TRUE);
+  gtk_widget_set_hexpand(entry, FALSE);
 
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, entry);
@@ -507,7 +569,33 @@ GtkWidget *newCombo(GObject     *rootObject,
   return entry;
 }
 
-GtkWidget *newComboEntry(GObject     *rootObject,
+GtkWidget *newCombo(GtkWidget   **widget,
+                    GObject     *rootObject,
+                    const gchar *name,
+                    const gchar *tooltipText
+                   )
+{
+  GtkWidget *entry;
+
+  entry = gtk_combo_box_text_new();
+  g_assert(entry != NULL);
+  gtk_widget_set_tooltip_text(entry, tooltipText);
+  gtk_widget_set_hexpand(entry, TRUE);
+
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
+  if (name != NULL)
+  {
+    g_object_set_data(G_OBJECT(rootObject), name, entry);
+  }
+
+  return entry;
+}
+
+GtkWidget *newComboEntry(GtkWidget   **widget,
+                         GObject     *rootObject,
                          const gchar *name,
                          const gchar *tooltipText
                         )
@@ -518,6 +606,10 @@ GtkWidget *newComboEntry(GObject     *rootObject,
   gtk_widget_set_tooltip_text(entry, tooltipText);
   gtk_widget_set_hexpand(entry, TRUE);
 
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, entry);
@@ -526,7 +618,8 @@ GtkWidget *newComboEntry(GObject     *rootObject,
   return entry;
 }
 
-GtkWidget *newEntry(GObject     *rootObject,
+GtkWidget *newEntry(GtkWidget   **widget,
+                    GObject     *rootObject,
                     const gchar *name,
                     const gchar *tooltipText
                    )
@@ -534,10 +627,15 @@ GtkWidget *newEntry(GObject     *rootObject,
   GtkWidget *entry;
 
   entry = gtk_entry_new();
+  g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
-  gtk_widget_set_hexpand(entry, TRUE);
   ui_entry_add_clear_icon(GTK_ENTRY(entry));
+  gtk_widget_set_hexpand(entry, TRUE);
 
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, entry);
@@ -546,7 +644,35 @@ GtkWidget *newEntry(GObject     *rootObject,
   return entry;
 }
 
-GtkWidget *newColorChooser(GObject     *rootObject,
+GtkWidget *newPasswordEntry(GtkWidget   **widget,
+                            GObject     *rootObject,
+                            const gchar *name,
+                            const gchar *tooltipText
+                           )
+{
+  GtkWidget *entry;
+
+  entry = gtk_entry_new();
+  g_assert(entry != NULL);
+  gtk_entry_set_visibility(GTK_ENTRY(entry), FALSE);
+  gtk_widget_set_tooltip_text(entry, tooltipText);
+  ui_entry_add_clear_icon(GTK_ENTRY(entry));
+  gtk_widget_set_hexpand(entry, TRUE);
+
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
+  if (name != NULL)
+  {
+    g_object_set_data(G_OBJECT(rootObject), name, entry);
+  }
+
+  return entry;
+}
+
+GtkWidget *newColorChooser(GtkWidget   **widget,
+                           GObject     *rootObject,
                            const gchar *name,
                            const gchar *tooltipText
                           )
@@ -554,10 +680,15 @@ GtkWidget *newColorChooser(GObject     *rootObject,
   GtkWidget *colorChooser;
 
   colorChooser = gtk_color_button_new();
+  g_assert(colorChooser != NULL);
 //  colorChooser = gtk_color_button_new_with_rgba(&pluginData.configuration.errorIndicatorColor);
   gtk_widget_set_tooltip_text(colorChooser, tooltipText);
   gtk_widget_set_halign(colorChooser, GTK_ALIGN_START);
 
+  if (widget != NULL)
+  {
+    (*widget) = colorChooser;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, colorChooser);
@@ -566,40 +697,246 @@ GtkWidget *newColorChooser(GObject     *rootObject,
   return colorChooser;
 }
 
-GtkWidget *newDirectoryChooser(GObject     *rootObject,
-                               GtkEntry    *entry,
-                               const gchar *tooltipText
-                              )
-{
-  GtkWidget *directoryChooser;
-
-  g_assert(entry != NULL);
-
-  UNUSED_VARIABLE(rootObject);
-
-  directoryChooser = gtk_file_chooser_button_new(_("Select a file"),
-                                                 GTK_FILE_CHOOSER_ACTION_OPEN
-                                                );
-  gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(directoryChooser), gtk_entry_get_text(entry));
-  gtk_widget_set_tooltip_text(directoryChooser, tooltipText);
-  gtk_widget_set_halign(directoryChooser, GTK_ALIGN_START);
-
-  return directoryChooser;
-}
-
 /***********************************************************************\
-* Name   : newDirectoryToolMenuOnPopupMenu
-* Purpose: open directory selector popup menu
-* Input  : button - button widget
-*          data   - popup menu to open
+* Name   : newFileChooserOnSelectDirectory
+* Purpose: select directory
+* Input  : widget   - widget
+*          userData - user data: entry widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void newDirectoryToolMenuOnPopupMenu(GtkButton *button, gpointer data)
+LOCAL void newFileChooserOnSelectDirectory(GtkWidget *widget,
+                                           gpointer  userData
+                                          )
 {
-  GtkMenu *menu = GTK_MENU(data);
+  GtkEntry *entry = GTK_ENTRY(userData);
+  g_assert(entry != NULL);
+
+  g_assert(widget != NULL);
+
+  GtkWidget *dialog = gtk_file_chooser_dialog_new(_("Select file"),
+                                                  GTK_WINDOW(gtk_widget_get_parent_window(GTK_WIDGET(widget))),
+                                                  GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
+                                                  _("_Cancel"),
+                                                  GTK_RESPONSE_CANCEL,
+                                                  _("_Open"),
+                                                  GTK_RESPONSE_ACCEPT,
+                                                  NULL
+                                                 );
+  gtk_file_chooser_set_filename(GTK_FILE_CHOOSER(dialog), gtk_entry_get_text(GTK_ENTRY(entry)));
+  gtk_file_chooser_set_create_folders(GTK_FILE_CHOOSER(dialog), TRUE);
+
+  if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
+  {
+    gchar *directoryPath = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+    g_assert(directoryPath != NULL);
+    gtk_entry_set_text(entry, directoryPath);
+    g_free(directoryPath);
+  }
+  gtk_widget_destroy(dialog);
+}
+
+GtkWidget *newDirectoryChooser(GtkWidget   **widget,
+                               GObject     *rootObject,
+                               const gchar *name,
+                               const gchar *tooltipText
+                              )
+{
+// TODO: remove old
+#if 0
+  GtkWidget *directoryChooser;
+
+  UNUSED_VARIABLE(rootObject);
+
+  directoryChooser = gtk_file_chooser_button_new(_("Select a directory"),
+                                                 GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER
+                                                );
+//  gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(directoryChooser), gtk_entry_get_text(entry));
+  gtk_widget_set_tooltip_text(directoryChooser, tooltipText);
+  gtk_widget_set_hexpand(directoryChooser, TRUE);
+
+  if (widget != NULL)
+  {
+    (*widget) = directoryChooser;
+  }
+  if (name != NULL)
+  {
+    g_object_set_data(G_OBJECT(rootObject), name, directoryChooser);
+  }
+
+  return directoryChooser;
+#else
+  GtkWidget *entry;
+
+  GtkWidget *subGrid = gtk_grid_new();
+  g_assert(subGrid != NULL);
+  gtk_grid_set_column_spacing(GTK_GRID(subGrid), 6);
+  gtk_widget_set_hexpand(GTK_WIDGET(subGrid), TRUE);
+  {
+    entry = gtk_entry_new();
+    g_assert(entry != NULL);
+    gtk_widget_set_tooltip_text(entry, tooltipText);
+    ui_entry_add_clear_icon(GTK_ENTRY(entry));
+    gtk_widget_set_hexpand(entry, TRUE);
+    addGrid(GTK_GRID(subGrid), 0, 0, 1, entry);
+
+    GtkWidget *button = gtk_button_new();
+    gtk_button_set_image(GTK_BUTTON(button), gtk_image_new_from_icon_name("document-open",0));
+    gtk_widget_set_tooltip_text(button, tooltipText);
+    gtk_widget_set_halign(button, GTK_ALIGN_START);
+    addGrid(GTK_GRID(subGrid), 0, 1, 1, button);
+    plugin_signal_connect(geany_plugin,
+                          G_OBJECT(button),
+                          "clicked",
+                          FALSE,
+                          G_CALLBACK(newFileChooserOnSelectDirectory),
+                          entry
+                         );
+  }
+  gtk_widget_show_all(subGrid);
+
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
+  if (name != NULL)
+  {
+    g_object_set_data(G_OBJECT(rootObject), name, entry);
+  }
+
+  return subGrid;
+#endif
+}
+
+/***********************************************************************\
+* Name   : newFileChooserOnSelectFile
+* Purpose: select file
+* Input  : widget   - widget
+*          userData - user data: entry widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void newFileChooserOnSelectFile(GtkWidget *widget,
+                                      gpointer  userData
+                                     )
+{
+  GtkEntry *entry = GTK_ENTRY(userData);
+  g_assert(entry != NULL);
+
+  g_assert(widget != NULL);
+
+  GtkWidget *dialog = gtk_file_chooser_dialog_new(_("Select file"),
+                                                  GTK_WINDOW(gtk_widget_get_parent_window(GTK_WIDGET(widget))),
+                                                  GTK_FILE_CHOOSER_ACTION_OPEN,
+                                                  _("_Cancel"),
+                                                  GTK_RESPONSE_CANCEL,
+                                                  _("_Open"),
+                                                  GTK_RESPONSE_ACCEPT,
+                                                  NULL
+                                                 );
+  gtk_file_chooser_set_filename(GTK_FILE_CHOOSER(dialog), gtk_entry_get_text(GTK_ENTRY(entry)));
+  gtk_file_chooser_set_create_folders(GTK_FILE_CHOOSER(dialog), TRUE);
+
+  if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
+  {
+    gchar *filePath = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+    g_assert(filePath != NULL);
+    gtk_entry_set_text(entry, filePath);
+    g_free(filePath);
+  }
+  gtk_widget_destroy(dialog);
+}
+
+GtkWidget *newFileChooser(GtkWidget   **widget,
+                          GObject     *rootObject,
+                          const gchar *name,
+                          const gchar *tooltipText
+                         )
+{
+// TODO: remove old
+#if 0
+  GtkWidget *fileChooser;
+
+  UNUSED_VARIABLE(rootObject);
+
+  fileChooser = gtk_file_chooser_button_new(_("Select a file"),
+                                            GTK_FILE_CHOOSER_ACTION_OPEN
+                                           );
+//  gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(fileChooser), gtk_entry_get_text(entry));
+  gtk_widget_set_tooltip_text(fileChooser, tooltipText);
+  gtk_widget_set_hexpand(fileChooser, TRUE);
+
+  if (widget != NULL)
+  {
+    (*widget) = fileChooser;
+  }
+  if (name != NULL)
+  {
+    g_object_set_data(G_OBJECT(rootObject), name, fileChooser);
+  }
+
+  return fileChooser;
+#else
+  GtkWidget *entry;
+
+  GtkWidget *subGrid = gtk_grid_new();
+  g_assert(subGrid != NULL);
+  gtk_grid_set_column_spacing(GTK_GRID(subGrid), 6);
+  gtk_widget_set_hexpand(GTK_WIDGET(subGrid), TRUE);
+  {
+    entry = gtk_entry_new();
+    g_assert(entry != NULL);
+    gtk_widget_set_tooltip_text(entry, tooltipText);
+    ui_entry_add_clear_icon(GTK_ENTRY(entry));
+    gtk_widget_set_hexpand(entry, TRUE);
+    addGrid(GTK_GRID(subGrid), 0, 0, 1, entry);
+
+    GtkWidget *button = gtk_button_new();
+    gtk_button_set_image(GTK_BUTTON(button), gtk_image_new_from_icon_name("document-open",0));
+    gtk_widget_set_tooltip_text(button, tooltipText);
+    gtk_widget_set_halign(button, GTK_ALIGN_START);
+    addGrid(GTK_GRID(subGrid), 0, 1, 1, button);
+    plugin_signal_connect(geany_plugin,
+                          G_OBJECT(button),
+                          "clicked",
+                          FALSE,
+                          G_CALLBACK(newFileChooserOnSelectFile),
+                          entry
+                         );
+  }
+  gtk_widget_show_all(subGrid);
+
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
+  if (name != NULL)
+  {
+    g_object_set_data(G_OBJECT(rootObject), name, entry);
+  }
+
+  return subGrid;
+#endif
+}
+
+/***********************************************************************\
+* Name   : newDirectoryToolMenuOnPopupMenu
+* Purpose: open directory selector popup menu
+* Input  : button   - button widget
+*          userData - user data: popup menu to open
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void newDirectoryToolMenuOnPopupMenu(GtkButton *button, gpointer userData)
+{
+  GtkMenu *menu = GTK_MENU(userData);
+  g_assert(menu != NULL);
 
   g_assert(button != NULL);
   g_assert(menu != NULL);
@@ -610,25 +947,24 @@ LOCAL void newDirectoryToolMenuOnPopupMenu(GtkButton *button, gpointer data)
 /***********************************************************************\
 * Name   : newDirectoryToolMenuOnSelectDirectory
 * Purpose: select directory
-* Input  : menuItem - button widget
-*          data     - entry widget
+* Input  : widget   - widget
+*          userData - user data: entry widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkMenuItem *menuItem,
-                                                 gpointer    data
+LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkWidget *widget,
+                                                 gpointer  userData
                                                 )
 {
-  GtkEntry *entry = GTK_ENTRY(data);
-
+  GtkEntry *entry = GTK_ENTRY(userData);
   g_assert(entry != NULL);
 
-  UNUSED_VARIABLE(menuItem);
+  g_assert(widget != NULL);
 
   GtkWidget *dialog = gtk_file_chooser_dialog_new(_("Select directory"),
-                                                  GTK_WINDOW(gtk_widget_get_parent_window(GTK_WIDGET(menuItem))),
+                                                  GTK_WINDOW(gtk_widget_get_parent_window(GTK_WIDGET(widget))),
                                                   GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
                                                   _("_Cancel"),
                                                   GTK_RESPONSE_CANCEL,
@@ -640,9 +976,8 @@ LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkMenuItem *menuItem,
 
   if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
   {
-    gchar *filePath;
-
-    filePath = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+    gchar *filePath = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));
+    g_assert(filePath != NULL);
     gtk_entry_set_text(entry, filePath);
     g_free(filePath);
   }
@@ -652,22 +987,21 @@ LOCAL void newDirectoryToolMenuOnSelectDirectory(GtkMenuItem *menuItem,
 /***********************************************************************\
 * Name   : newDirectoryToolMenuOnSelectDirectory
 * Purpose: current file directory
-* Input  : menuItem - button widget
-*          data     - entry widget
+* Input  : widget   - widget (not used)
+*          userData - user data: entry widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void newDirectoryToolMenuOnCurrentFileDirectory(GtkMenuItem *menuItem,
-                                               gpointer    data
-                                              )
+LOCAL void newDirectoryToolMenuOnCurrentFileDirectory(GtkWidget *widget,
+                                                      gpointer  userData
+                                                     )
 {
-  GtkEntry *entry = GTK_ENTRY(data);
-
+  GtkEntry *entry = GTK_ENTRY(userData);
   g_assert(entry != NULL);
 
-  UNUSED_VARIABLE(menuItem);
+  UNUSED_VARIABLE(widget);
 
   gtk_entry_set_text(entry, "%d");
 }
@@ -676,18 +1010,17 @@ LOCAL void newDirectoryToolMenuOnCurrentFileDirectory(GtkMenuItem *menuItem,
 * Name   : newDirectoryToolMenuOnCurrentFileBase
 * Purpose: curent file basename
 * Input  : menuItem - button widget
-*          data     - entry widget
+*          userData - user data: entry widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnCurrentFileBase(GtkMenuItem *menuItem,
-                                                 gpointer    data
+                                                 gpointer    userData
                                                 )
 {
-  GtkEntry *entry = GTK_ENTRY(data);
-
+  GtkEntry *entry = GTK_ENTRY(userData);
   g_assert(entry != NULL);
 
   UNUSED_VARIABLE(menuItem);
@@ -699,18 +1032,17 @@ LOCAL void newDirectoryToolMenuOnCurrentFileBase(GtkMenuItem *menuItem,
 * Name   : newDirectoryToolMenuOnCurrentFile
 * Purpose: current file name
 * Input  : menuItem - button widget
-*          data     - entry widget
+*          userData - user data: entry widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnCurrentFile(GtkMenuItem *menuItem,
-                                             gpointer    data
+                                             gpointer    userData
                                             )
 {
-  GtkEntry *entry = GTK_ENTRY(data);
-
+  GtkEntry *entry = GTK_ENTRY(userData);
   g_assert(entry != NULL);
 
   UNUSED_VARIABLE(menuItem);
@@ -721,22 +1053,21 @@ LOCAL void newDirectoryToolMenuOnCurrentFile(GtkMenuItem *menuItem,
 /***********************************************************************\
 * Name   : newDirectoryToolMenuOnSelectDirectory
 * Purpose: project base directory
-* Input  : menuItem - button widget
-*          data     - entry widget
+* Input  : widget   - widget (not used)
+*          userData - user data: entry widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void newDirectoryToolMenuOnProjectDirectory(GtkMenuItem *menuItem,
-                                                  gpointer    data
+LOCAL void newDirectoryToolMenuOnProjectDirectory(GtkWidget *widget,
+                                                  gpointer  userData
                                                  )
 {
-  GtkEntry *entry = GTK_ENTRY(data);
-
+  GtkEntry *entry = GTK_ENTRY(userData);
   g_assert(entry != NULL);
 
-  UNUSED_VARIABLE(menuItem);
+  UNUSED_VARIABLE(widget);
 
   gtk_entry_set_text(entry, "%p");
 }
@@ -745,18 +1076,17 @@ LOCAL void newDirectoryToolMenuOnProjectDirectory(GtkMenuItem *menuItem,
 * Name   : newDirectoryToolMenuOnCurrentLineNumber
 * Purpose: current line number
 * Input  : menuItem - button widget
-*          data     - entry widget
+*          userData - user data: entry widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnCurrentLineNumber(GtkMenuItem *menuItem,
-                                                   gpointer    data
+                                                   gpointer    userData
                                                   )
 {
-  GtkEntry *entry = GTK_ENTRY(data);
-
+  GtkEntry *entry = GTK_ENTRY(userData);
   g_assert(entry != NULL);
 
   UNUSED_VARIABLE(menuItem);
@@ -768,18 +1098,17 @@ LOCAL void newDirectoryToolMenuOnCurrentLineNumber(GtkMenuItem *menuItem,
 * Name   : newDirectoryToolMenuOnText
 * Purpose: text
 * Input  : menuItem - button widget
-*          data     - entry widget
+*          userData - user data: entry widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void newDirectoryToolMenuOnText(GtkMenuItem *menuItem,
-                                      gpointer    data
+                                      gpointer    userData
                                      )
 {
-  GtkEntry *entry = GTK_ENTRY(data);
-
+  GtkEntry *entry = GTK_ENTRY(userData);
   g_assert(entry != NULL);
 
   UNUSED_VARIABLE(menuItem);
@@ -801,7 +1130,8 @@ LOCAL void newDirectoryToolMenuOnText(GtkMenuItem *menuItem,
 * Notes  : -
 \***********************************************************************/
 
-LOCAL GtkWidget *newDirectoryToolMenu(GObject     *rootObject,
+LOCAL GtkWidget *newDirectoryToolMenu(GtkWidget   **widget,
+                                      GObject     *rootObject,
                                       GtkEntry    *entry,
                                       const gchar *tooltipText
                                      )
@@ -812,18 +1142,21 @@ LOCAL GtkWidget *newDirectoryToolMenu(GObject     *rootObject,
   UNUSED_VARIABLE(rootObject);
   UNUSED_VARIABLE(entry);
 
-  GtkWidget *widget = gtk_button_new();
-  gtk_widget_set_tooltip_text(widget, tooltipText);
-  gtk_button_set_image(GTK_BUTTON(widget), gtk_image_new_from_icon_name("folder", GTK_ICON_SIZE_BUTTON));
+  GtkWidget *button = gtk_button_new();
+  g_assert(button != NULL);
+  gtk_widget_set_tooltip_text(button, tooltipText);
+  gtk_button_set_image(GTK_BUTTON(button), gtk_image_new_from_icon_name("folder", GTK_ICON_SIZE_BUTTON));
   {
     GtkWidget *menu = gtk_menu_new();
+    g_assert(menu != NULL);
     {
       GtkWidget *menuItem;
 
       menuItem = gtk_menu_item_new_with_label("Select");
       gtk_container_add(GTK_CONTAINER(menu), menuItem);
       plugin_signal_connect(geany_plugin,
-                            G_OBJECT(menuItem), "activate",
+                            G_OBJECT(menuItem),
+                            "activate",
                             FALSE,
                             G_CALLBACK(newDirectoryToolMenuOnSelectDirectory),
                             entry
@@ -892,19 +1225,25 @@ LOCAL GtkWidget *newDirectoryToolMenu(GObject     *rootObject,
     gtk_widget_show_all(menu);
 
     plugin_signal_connect(geany_plugin,
-                          G_OBJECT(widget),
+                          G_OBJECT(button),
                           "clicked",
                           FALSE,
                           G_CALLBACK(newDirectoryToolMenuOnPopupMenu),
                           menu
                          );
   }
-  gtk_widget_show_all(widget);
+  gtk_widget_show_all(button);
 
-  return widget;
+  if (widget != NULL)
+  {
+    (*widget) = button;
+  }
+
+  return button;
 }
 
-GtkWidget *newWorkingDirectoryChooser(GObject     *rootObject,
+GtkWidget *newWorkingDirectoryChooser(GtkWidget   **widget,
+                                      GObject     *rootObject,
                                       const gchar *name,
                                       const gchar *tooltipText
                                      )
@@ -912,19 +1251,25 @@ GtkWidget *newWorkingDirectoryChooser(GObject     *rootObject,
   GtkWidget *entry;
 
   GtkWidget *subGrid = gtk_grid_new();
+  g_assert(subGrid != NULL);
   gtk_grid_set_column_spacing(GTK_GRID(subGrid), 12);
   gtk_widget_set_hexpand(GTK_WIDGET(subGrid), TRUE);
   {
     entry = gtk_entry_new();
+    g_assert(entry != NULL);
     gtk_widget_set_tooltip_text(entry, tooltipText);
 //  gtk_entry_set_max_length (GTK_ENTRY (entry), 50);
-    gtk_widget_set_hexpand(entry, TRUE);
     ui_entry_add_clear_icon(GTK_ENTRY(entry));
+    gtk_widget_set_hexpand(entry, TRUE);
     addGrid(GTK_GRID(subGrid), 0, 0, 1, entry);
-    addGrid(GTK_GRID(subGrid), 0, 1, 1, newDirectoryToolMenu(rootObject, GTK_ENTRY(entry), _("Select working directory.")));
+    addGrid(GTK_GRID(subGrid), 0, 1, 1, newDirectoryToolMenu(NULL, rootObject, GTK_ENTRY(entry), _("Select working directory.")));
   }
   gtk_widget_show_all(subGrid);
 
+  if (widget != NULL)
+  {
+    (*widget) = entry;
+  }
   if (name != NULL)
   {
     g_object_set_data(G_OBJECT(rootObject), name, entry);
@@ -936,22 +1281,21 @@ GtkWidget *newWorkingDirectoryChooser(GObject     *rootObject,
 /***********************************************************************\
 * Name   : onInputDialogChanged
 * Purpose: input entry text changed callback
-* Input  : entry - entry
-*          data  - ok-button widget
+* Input  : entry    - entry
+*          userData - user data: ok-button widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void onInputDialogChanged(GtkEntry *entry,
-                                gpointer data
+                                gpointer userData
                                )
 {
   InputValidator validator     = (InputValidator)g_object_get_data(G_OBJECT(entry), "validator_function");
-  gpointer       validatorData = g_object_get_data(G_OBJECT(entry), "validator_data");
-  GtkWidget      *okButton     = GTK_WIDGET(data);
-
   g_assert(validator != NULL);
+  gpointer       validatorData = g_object_get_data(G_OBJECT(entry), "validator_data");
+  GtkWidget      *okButton     = GTK_WIDGET(userData);
   g_assert(okButton != NULL);
 
   // call validator and enable/disable ok-button
@@ -966,7 +1310,7 @@ gboolean inputDialog(GtkWindow      *parentWindow,
                      const gchar    *tooltipText,
                      const gchar    *value,
                      InputValidator validator,
-                     gpointer       data,
+                     gpointer       userData,
                      GString        *string
                     )
 {
@@ -993,12 +1337,13 @@ gboolean inputDialog(GtkWindow      *parentWindow,
   gtk_widget_set_margin_bottom(GTK_WIDGET(vbox), 6);
   {
     GtkGrid *grid = GTK_GRID(gtk_grid_new());
+    g_assert(grid != NULL);
     gtk_grid_set_column_spacing(grid, 12);
     gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
     g_object_set(GTK_GRID(grid), "margin", 6, NULL);
     {
-      addGrid(grid, 0, 0, 1, newLabel(G_OBJECT(dialog), NULL, text, tooltipText));
-      entry = addGrid(grid, 0, 1, 1, newEntry(G_OBJECT(dialog), "entry", tooltipText));
+      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, text, tooltipText));
+      addGrid(grid, 0, 1, 1, newEntry(&entry, G_OBJECT(dialog), "entry", tooltipText));
 
       if (value != NULL)
       {
@@ -1007,7 +1352,7 @@ gboolean inputDialog(GtkWindow      *parentWindow,
       if (validator != NULL)
       {
         g_object_set_data(G_OBJECT(entry), "validator_function", validator);
-        g_object_set_data(G_OBJECT(entry), "validator_data", data);
+        g_object_set_data(G_OBJECT(entry), "validator_data", userData);
         plugin_signal_connect(geany_plugin,
                               G_OBJECT(entry),
                               "changed",
@@ -1026,7 +1371,7 @@ gboolean inputDialog(GtkWindow      *parentWindow,
   if (validator != NULL)
   {
     gtk_widget_set_sensitive(okButton,
-                             validator(gtk_entry_get_text(GTK_ENTRY(entry)),data)
+                             validator(gtk_entry_get_text(GTK_ENTRY(entry)),userData)
                             );
   }
 
@@ -1048,18 +1393,15 @@ gboolean inputDialog(GtkWindow      *parentWindow,
 gchar *expandMacros(const GeanyProject  *project,
                     const GeanyDocument *document,
                     const gchar         *template,
-                    const gchar         *wrapperCommand,
                     const gchar         *customTarget
                    )
 {
-  GString  *expandedString;
   gboolean customTargetSet = FALSE;
   gchar    *result;
 
+  GString *expandedString = g_string_new(NULL);
   if (template != NULL)
   {
-    expandedString = g_string_new(wrapperCommand);
-    if (wrapperCommand != NULL) g_string_append(expandedString, " '");
     while ((*template) != '\0')
     {
       if ((*template) == '%')
@@ -1157,19 +1499,13 @@ gchar *expandMacros(const GeanyProject  *project,
     {
       g_string_append(expandedString, customTarget);
     }
-    if (wrapperCommand != NULL) g_string_append_c(expandedString,'\'');
-
-    // get result
-    result = (expandedString->len > 0 ) ? expandedString->str : NULL;
-
-    // free resources
-    g_string_free(expandedString,FALSE);
-  }
-  else
-  {
-    result = NULL;
   }
 
+  // get result
+  result = expandedString->str;
+
+  // free resources
+  g_string_free(expandedString,FALSE);
 
   return result;
 }

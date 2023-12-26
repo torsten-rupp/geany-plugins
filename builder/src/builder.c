@@ -29,36 +29,37 @@
 #include <gdk/gdkkeysyms.h>
 
 #include "utils.h"
-#include "builder.h"
+#include "remote.h"
+#include "execute.h"
 
-#define LOCAL static
+#include "builder.h"
 
 /****************** Conditional compilation switches *******************/
 
 /***************************** Constants *******************************/
-const gchar *CONFIGURATION_GROUP_BUILDER          = "builder";
+const gchar   *VERSION                              = "1.0";
 
-const gchar *KEY_GROUP_BUILDER                    = "builder";
+const gchar   *CONFIGURATION_GROUP_BUILDER          = "builder";
 
-const gchar *COLOR_BUILD_INFO                     = "Blue";
-const gchar *COLOR_BUILD_ERROR                    = "Red";
-const gchar *COLOR_BUILD_MESSAGES                 = "Black";
-const gchar *COLOR_BUILD_MESSAGES_MATCHED_ERROR   = "Magenta";
-const gchar *COLOR_BUILD_MESSAGES_MATCHED_WARNING = "Green";
+const gchar   *KEY_GROUP_BUILDER                    = "builder";
 
-#define MAX_COMMANDS                              10
-const gchar *DEFAULT_BUILD_COMMAND                = "make";
-const gchar *DEFAULT_CLEAN_COMMAND                = "make clean";
+#define MAX_COMMANDS                                   10
+const gchar   *DEFAULT_BUILD_COMMAND                = "make";
+const gchar   *DEFAULT_CLEAN_COMMAND                = "make clean";
 
-const GdkRGBA DEFAULT_ERROR_INDICATOR_COLOR       = {0xFF,0x00,0x00,0xFF};
-const GdkRGBA DEFAULT_WARNING_INDICATOR_COLOR     = {0x00,0xFF,0x00,0xFF};
+const GdkRGBA DEFAULT_ERROR_INDICATOR_COLOR         = {0xFF,0x00,0x00,0xFF};
+const GdkRGBA DEFAULT_WARNING_INDICATOR_COLOR       = {0x00,0xFF,0x00,0xFF};
 
-const guint ERROR_INDICATOR_INDEX                 = GEANY_INDICATOR_ERROR;
-const guint WARNING_INDICATOR_INDEX               = 1;
+const guint   ERROR_INDICATOR_INDEX                 = GEANY_INDICATOR_ERROR;
+const guint   WARNING_INDICATOR_INDEX               = 1;
 
-const guint MAX_ERROR_WARNING_INDICATORS          = 16;
+const guint   MAX_ERROR_WARNING_INDICATORS          = 16;
 
-/***************************** Datatypes *******************************/
+const gchar   *COLOR_BUILD_INFO                     = "Blue";
+const gchar   *COLOR_BUILD_ERROR                    = "Red";
+const gchar   *COLOR_BUILD_MESSAGES                 = "Black";
+const gchar   *COLOR_BUILD_MESSAGES_MATCHED_ERROR   = "Magenta";
+const gchar   *COLOR_BUILD_MESSAGES_MATCHED_WARNING = "Green";
 
 // command list columns
 enum
@@ -69,11 +70,11 @@ enum
   MODEL_COMMAND_SHOW_BUTTON,
   MODEL_COMMAND_SHOW_MENU_ITEM,
   MODEL_COMMAND_INPUT_CUSTOM_TEXT,
+  MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER,
+  MODEL_COMMAND_RUN_REMOTE,
   MODEL_COMMAND_PARSE_OUTPUT,
 
-  MODEL_COMMAND_COUNT,
-
-  MODEL_COMMAND_END = -1
+  MODEL_COMMAND_COUNT
 };
 
 // regular expression list columns
@@ -84,9 +85,7 @@ enum
   MODEL_REGEX_TYPE,
   MODEL_REGEX_REGEX,
 
-  MODEL_REGEX_COUNT,
-
-  MODEL_REGEX_END = -1
+  MODEL_REGEX_COUNT
 };
 
 // message columns
@@ -101,9 +100,7 @@ enum
   MODEL_MESSAGE_COLUMN_NUMBER,
   MODEL_MESSAGE_MESSAGE,
 
-  MODEL_MESSAGE_COUNT,
-
-  MODEL_MESSAGE_END = -1
+  MODEL_MESSAGE_COUNT
 };
 
 // build error/warning columns
@@ -117,9 +114,7 @@ enum
   MODEL_ERROR_WARNING_COLUMN_NUMBER,
   MODEL_ERROR_WARNING_MESSAGE,
 
-  MODEL_ERROR_WARNING_COUNT,
-
-  MODEL_ERROR_WARNING_END = -1
+  MODEL_ERROR_WARNING_COUNT
 };
 
 // attach docker container columns
@@ -128,10 +123,12 @@ enum
   MODEL_ATTACH_DOCKER_CONTAINER_ID,
   MODEL_ATTACH_DOCKER_CONTAINER_IMAGE,
 
-  MODEL_ATTACH_DOCKER_CONTAINER_COUNT,
-
-  MODEL_ATTACH_DOCKER_CONTAINER_END = -1
+  MODEL_ATTACH_DOCKER_CONTAINER_COUNT
 };
+
+const int MODEL_END = -1;
+
+/***************************** Datatypes *******************************/
 
 // key short-cuts
 typedef enum
@@ -161,18 +158,6 @@ typedef enum
 
 typedef void(*OutputHandler)(GString *line, GIOCondition ioCondition, gpointer data);
 typedef gboolean(*InputValidator)(const gchar *value, gpointer data);
-
-typedef struct
-{
-  gchar    *title;
-  gchar    *commandLine;
-  gchar    *workingDirectory;
-  gboolean showButton;
-  gboolean showMenuItem;
-  gboolean inputCustomText;
-  gboolean runInDockerContainer;
-  gboolean parseOutput;
-} Command;
 
 typedef enum
 {
@@ -214,7 +199,7 @@ LOCAL struct
   {
     gchar        *filePath;
 
-    GList        *commandList;
+    GtkListStore *commandStore;
     GtkListStore *regexStore;
 
     gboolean     errorIndicators;
@@ -232,10 +217,21 @@ LOCAL struct
   // project specific properties
   struct
   {
-    Command      commands[MAX_COMMANDS];
+    gchar        *filePath;
+
     GtkListStore *commandStore;
     GString      *errorRegEx;
     GString      *warningRegEx;
+
+    struct
+    {
+      GString *hostName;
+      guint   hostPort;
+      GString *userName;
+      GString *publicKey;
+      GString *privateKey;
+      GString *password;
+    } remote;
   } projectProperties;
 
   // widgets
@@ -251,11 +247,12 @@ LOCAL struct
       GtkWidget *showNextError;
       GtkWidget *showPrevWarning;
       GtkWidget *showNextWarning;
-      GtkWidget *attachDetachDockerContainer;
+      GtkWidget *dockerContainer;
+      GtkWidget *remote;
       GtkWidget *projectProperties;
       GtkWidget *configuration;
 
-      GtkWidget *editRegEx;
+      GtkWidget *editRegex;
     } menuItems;
 
     struct
@@ -288,33 +285,31 @@ LOCAL struct
   } widgets;
 
   // attached docker container id
-  gchar *attachedDockerContainerId;
+  const gchar *attachedDockerContainerId;
 
   // build results
   struct
   {
-    GPid         pid;
-    GString      *workingDirectory;
     StringStack  *directoryPrefixStack;
 
     gboolean     showedFirstErrorWarning;
 
     GtkListStore *messagesStore;
-    GtkTreeIter  messageTreeIter;
+    GtkTreeIter  messageTreeIterator;
     GtkTreePath  *messagesTreePath;
     guint        messageCount;
 
     GtkTreeStore *errorsStore;
-    GtkTreeIter  errorsTreeIter;
-    gboolean     errorsTreeIterValid;
+    GtkTreeIter  errorsTreeIterator;
+    gboolean     errorsTreeIterorValid;
 
     GtkTreeStore *warningsStore;
-    GtkTreeIter  warningsTreeIter;
-    gboolean     warningsTreeIterValid;
+    GtkTreeIter  warningsTreeIterator;
+    gboolean     warningsTreeIterorValid;
 
-    GtkTreeIter  insertIter;
+    GtkTreeIter  insertIterator;
     GtkTreeStore *lastErrorsWarningsInsertStore;
-    GtkTreeIter  *lastErrorsWarningsInsertTreeIter;
+    GtkTreeIter  *lastErrorsWarningsInsertTreeIterator;
     const gchar  *lastErrorsWarningsInsertColor;
     guint        errorWarningIndicatorsCount;
 
@@ -323,10 +318,6 @@ LOCAL struct
 } pluginData;
 
 /****************************** Macros *********************************/
-#define LOCAL_INLINE static inline
-#define UNUSED_VARIABLE(name) (void)name
-
-#define ARRAY_SIZE(array) (sizeof(array)/sizeof(array[0]))
 
 /***************************** Forwards ********************************/
 
@@ -336,386 +327,226 @@ LOCAL void updateEnableToolbarMenuItems();
 /***************************** Functions *******************************/
 
 /***********************************************************************\
-* Name   : initCommands
-* Purpose: init commands
-* Input  : commands     - commands array
-*          commandCount - length of commands array
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-LOCAL void initCommands(Command commands[], gint commandCount)
-{
-  g_assert(commands != NULL);
-
-  for (gint i = 0; i < commandCount; i++)
-  {
-    commands[i].title                = NULL;
-    commands[i].commandLine          = NULL;
-    commands[i].workingDirectory     = NULL;
-    commands[i].showButton           = FALSE;
-    commands[i].showMenuItem         = FALSE;
-    commands[i].inputCustomText      = FALSE;
-    commands[i].runInDockerContainer = FALSE;
-    commands[i].parseOutput          = FALSE;
-  }
-}
-
-/***********************************************************************\
-* Name   : doneCommands
-* Purpose: done commands
-* Input  : commands     - commands array
-*          commandCount - length of commands array
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-LOCAL void doneCommands(Command commands[], gint commandCount)
-{
-  g_assert(commands != NULL);
-
-  for (gint i = 0; i < commandCount; i++)
-  {
-    g_free(commands[i].workingDirectory);
-    g_free(commands[i].commandLine);
-    g_free(commands[i].title);
-  }
-}
-
-/***********************************************************************\
-* Name   : setCommand
-* Purpose: set command values
-* Input  : command - command to set
-*          title   - title
-*          commandLine          - commandLine
-*          workingDirectory     - title
-*          showButton           - show button
-*          showMenuItem         - show in menu
-*          inputCustomText      - input custom text
-*          runInDockerContainer - run in docker container
-*          parseOutput          - parse output
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-LOCAL void setCommand(Command     *command,
-                      const gchar *title,
-                      const gchar *commandLine,
-                      const gchar *workingDirectory,
-                      gboolean    showButton,
-                      gboolean    showMenuItem,
-                      gboolean    inputCustomText,
-                      gboolean    runInDockerContainer,
-                      gboolean    parseOutput
-                     )
-{
-  g_assert(command != NULL);
-
-  if (command->title != NULL) g_free(command->title);
-  command->title                = g_strdup(title);
-  if (command->commandLine != NULL) g_free(command->commandLine);
-  command->commandLine          = g_strdup(commandLine);
-  if (command->workingDirectory != NULL) g_free(command->workingDirectory);
-  command->workingDirectory     = g_strdup(workingDirectory);
-  command->showButton           = showButton;
-  command->showMenuItem         = showMenuItem;
-  command->inputCustomText      = inputCustomText;
-  command->runInDockerContainer = runInDockerContainer;
-  command->parseOutput          = parseOutput;
-}
-
-/***********************************************************************\
-* Name   : freeCommand
-* Purpose: free command
-* Input  : command - command
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-LOCAL void freeCommand(Command *command)
-{
-  g_assert(command != NULL);
-
-  g_free(command->workingDirectory);
-  g_free(command->commandLine);
-  g_free(command->title);
-
-  free(command);
-}
-
-/***********************************************************************\
-* Name   : addCommand
-* Purpose: add command values
-* Input  : commandList          - command list
-*          title                - title
-*          commandLine          - commandLine
-*          workingDirectory     - title
-*          showButton           - show button
-*          showMenuItem         - show in menu
-*          inputCustomText      - input custom text
-*          runInDockerContainer - run in docker container
-*          parseOutput          - parse output
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-LOCAL void addCommand(GList       **commandList,
-                      const gchar *title,
-                      const gchar *commandLine,
-                      const gchar *workingDirectory,
-                      gboolean    showButton,
-                      gboolean    showMenuItem,
-                      gboolean    inputCustomText,
-                      gboolean    runInDockerContainer,
-                      gboolean    parseOutput
-                     )
-{
-  Command *command = (Command*)malloc(sizeof(Command));
-  g_assert(command != NULL);
-
-  command->title                = g_strdup(title);
-  command->commandLine          = g_strdup(commandLine);
-  command->workingDirectory     = g_strdup(workingDirectory);
-  command->showButton           = showButton;
-  command->showMenuItem         = showMenuItem;
-  command->inputCustomText      = inputCustomText;
-  command->runInDockerContainer = runInDockerContainer;
-  command->parseOutput          = parseOutput;
-
-  (*commandList) = g_list_append(*commandList, command);
-}
-
-/***********************************************************************\
-* Name   : updateCommand
-* Purpose: update command values
-* Input  : commandList          - command list
-*          title                - title
-*          commandLine          - commandLine
-*          workingDirectory     - title
-*          showButton           - show button
-*          showMenuItem         - show in menu
-*          inputCustomText      - input custom text
-*          runInDockerContainer - run in docker container
-*          parseOutput          - parse output
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-LOCAL void updateCommand(const GList *commandList,
-                         const gchar *title,
-                         const gchar *commandLine,
-                         const gchar *workingDirectory,
-                         gboolean    showButton,
-                         gboolean    showMenuItem,
-                         gboolean    inputCustomText,
-                         gboolean    runInDockerContainer,
-                         gboolean    parseOutput
-                        )
-{
-  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
-  {
-    Command *command = (Command*)commandNode->data;
-    g_assert(command != NULL);
-
-fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
-// TODO:
-    command->title                = g_strdup(title);
-    command->commandLine          = g_strdup(commandLine);
-    command->workingDirectory     = g_strdup(workingDirectory);
-    command->showButton           = showButton;
-    command->showMenuItem         = showMenuItem;
-    command->inputCustomText      = inputCustomText;
-    command->runInDockerContainer = runInDockerContainer;
-    command->parseOutput          = parseOutput;
-  }
-}
-
-/***********************************************************************\
-* Name   : freeCommandList
-* Purpose: free command list
-* Input  : commandList - command list
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-// TODO: requred?
-LOCAL void freeCommandList(GList **commandList)
-{
-  g_assert(commandList != NULL);
-
-  g_list_free_full(g_steal_pointer(commandList),freeCommand);
-}
-
-#if 0
-/***********************************************************************\
-* Name   : getCommand
-* Purpose: get command
-* Input  : i - command index [0..MAX_COMMANDS-1]
-* Output : -
-* Return : command or NULL
-* Notes  : -
-\***********************************************************************/
-
-LOCAL const Command *getCommand(gint i)
-{
-  g_assert(i >= 0);
-  g_assert(i < MAX_COMMANDS);
-
-  return !isStringEmpty(pluginData.configuration.commands[i].title) ? &pluginData.configuration.commands[i] : NULL;
-}
-#endif
-
-/***********************************************************************\
-* Name   : getProjectCommand
-* Purpose: get project specific command
-* Input  : i - command index [0..MAX_COMMANDS-1]
-* Output : -
-* Return : command or NULL
-* Notes  : -
-\***********************************************************************/
-
-LOCAL const Command *getProjectCommand(gint i)
-{
-  g_assert(i >= 0);
-  g_assert(i < MAX_COMMANDS);
-
-  return !isStringEmpty(pluginData.projectProperties.commands[i].title) ? &pluginData.projectProperties.commands[i] : NULL;
-}
-
-/***********************************************************************\
 * Name   : configurationLoadBoolean
 * Purpose: load boolean value from configuration
-* Input  : boolean       - boolean variable
-*          configuration - configuration to load values from
+* Input  : configuration - configuration to load values from
+*          value         - value variable
 *          name          - value name
-* Output : -
+* Output : value - value
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configurationLoadBoolean(gboolean    *boolean,
-                                    GKeyFile    *configuration,
+LOCAL void configurationLoadBoolean(GKeyFile    *configuration,
+                                    gboolean    *value,
                                     const gchar *name
                                    )
 {
-  g_assert(boolean != NULL);
   g_assert(configuration != NULL);
+  g_assert(value != NULL);
   g_assert(name != NULL);
 
-  (*boolean) = g_key_file_get_boolean(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL);
+  (*value) = g_key_file_get_boolean(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL);
 }
 
 /***********************************************************************\
-* Name   : configurationStringUpdate
-* Purpose: load string value from configuration
-* Input  : string        - string variable
-*          configuration - configuration to load values from
-*          groupName     - group name
+* Name   : configurationLoadInteger
+* Purpose: load integer value from configuration
+* Input  : configuration - configuration to load values from
+*          value         - value variable
 *          name          - value name
-* Output : -
+* Output : value - value
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configurationLoadString(GString     *string,
-                                   GKeyFile    *configuration,
+LOCAL void configurationLoadInteger(GKeyFile    *configuration,
+                                    gint        *value,
+                                    const gchar *name
+                                   )
+{
+  g_assert(configuration != NULL);
+  g_assert(value != NULL);
+  g_assert(name != NULL);
+
+  (*value) = g_key_file_get_integer(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL);
+}
+/***********************************************************************\
+* Name   : configurationStringUpdate
+* Purpose: load string value from configuration
+* Input  : configuration - configuration to load values from
+*          value         - value variable
+*          name          - value name
+* Output : value - value
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void configurationLoadString(GKeyFile    *configuration,
+                                   GString     *value,
                                    const gchar *name
                                   )
 {
-  g_assert(string != NULL);
   g_assert(configuration != NULL);
+  g_assert(value != NULL);
   g_assert(name != NULL);
 
-  g_string_assign(string, g_key_file_get_string(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL));
+  const gchar *data = g_key_file_get_string(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL);
+  g_string_assign(value, (data != NULL) ? data : "");
 }
 
 /***********************************************************************\
 * Name   : configurationLoadCommand
 * Purpose: load command from configuration
 * Input  : configuration - configuration to load values from
+*          listStore     - list store
 *          name          - value name
 * Output : -
-* Return : command or NULL
+* Return : TRUE iff loaded
 * Notes  : -
 \***********************************************************************/
 
-LOCAL Command *configurationLoadCommand(GKeyFile    *configuration,
-                                        const gchar *name
+LOCAL gboolean configurationLoadCommand(GKeyFile     *configuration,
+                                        GtkListStore *listStore,
+                                        const gchar  *name
                                        )
 {
   g_assert(configuration != NULL);
+  g_assert(listStore != NULL);
   g_assert(name != NULL);
 
-  Command *command = NULL;
+  gboolean result = FALSE;
 
   gchar *string = g_key_file_get_string(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL);
   if (string != NULL)
   {
-    gchar **tokens   = stringSplit(string, ":", '\\', 8);
+    gchar **tokens   = stringSplit(string, ":", '\\', 9);
     g_assert(tokens != NULL);
     guint tokenCount = g_strv_length(tokens);
 
-    command = (Command*)malloc(sizeof(Command));
-    g_assert(command != NULL);
-
-    command->title                = (tokenCount >= 1) ? stringUnescape(tokens[0],'\\') : NULL;
-    command->commandLine          = (tokenCount >= 2) ? stringUnescape(tokens[1],'\\') : NULL;
-    command->workingDirectory     = (tokenCount >= 3) ? stringUnescape(tokens[2],'\\') : NULL;
-    command->showButton           = (tokenCount >= 4) ? stringEquals(tokens[3],"yes")  : FALSE;
-    command->showMenuItem         = (tokenCount >= 5) ? stringEquals(tokens[4],"yes")  : FALSE;
-    command->inputCustomText      = (tokenCount >= 6) ? stringEquals(tokens[5],"yes")  : FALSE;
-    command->runInDockerContainer = (tokenCount >= 7) ? stringEquals(tokens[6],"yes")  : FALSE;
-    command->parseOutput          = (tokenCount >= 8) ? stringEquals(tokens[7],"yes")  : FALSE;
+    gtk_list_store_insert_with_values(listStore,
+                                      NULL,
+                                      -1,
+                                      MODEL_COMMAND_TITLE,                   (tokenCount >= 1) ? stringUnescape(tokens[0],'\\') : "",
+                                      MODEL_COMMAND_COMMAND_LINE,            (tokenCount >= 2) ? stringUnescape(tokens[1],'\\') : "",
+                                      MODEL_COMMAND_WORKING_DIRECTORY,       (tokenCount >= 3) ? stringUnescape(tokens[2],'\\') : "",
+                                      MODEL_COMMAND_SHOW_BUTTON,             (tokenCount >= 4) ? stringEquals(tokens[3],"yes")  : FALSE,
+                                      MODEL_COMMAND_SHOW_MENU_ITEM,          (tokenCount >= 5) ? stringEquals(tokens[4],"yes")  : FALSE,
+                                      MODEL_COMMAND_INPUT_CUSTOM_TEXT,       (tokenCount >= 6) ? stringEquals(tokens[5],"yes")  : FALSE,
+                                      MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, (tokenCount >= 7) ? stringEquals(tokens[6],"yes")  : FALSE,
+                                      MODEL_COMMAND_RUN_REMOTE,              (tokenCount >= 8) ? stringEquals(tokens[7],"yes")  : FALSE,
+                                      MODEL_COMMAND_PARSE_OUTPUT,            (tokenCount >= 9) ? stringEquals(tokens[8],"yes")  : FALSE,
+                                      MODEL_END
+                                     );
 
     g_strfreev(tokens);
     g_free(string);
+
+    result = TRUE;
   }
 
-  return command;
+  return result;
+}
+
+/***********************************************************************\
+* Name   : configurationLoadCommandList
+* Purpose: load commands from configuration
+* Input  : configuration - configuration to load values from
+* Output : -
+* Return : TRUE iff loaded
+* Notes  : -
+\***********************************************************************/
+
+LOCAL gboolean configurationLoadCommandList(GKeyFile     *configuration,
+                                            GtkListStore *listStore
+                                           )
+{
+  g_assert(configuration != NULL);
+  g_assert(listStore != NULL);
+
+  gboolean result = TRUE;
+
+  gtk_list_store_clear(listStore);
+  guint    i = 0;
+  do
+  {
+    gchar    name[64];
+    g_snprintf(name,sizeof(name),"command%u",i);
+    result = configurationLoadCommand(configuration, listStore, name);
+    i++;
+  }
+  while (result);
+
+  return result;
 }
 
 /***********************************************************************\
 * Name   : configurationSaveCommand
-* Purpose: save command command into configuration
-* Input  : treeModel     - command
-*          configuration - configuration
+* Purpose: save command into configuration
+* Input  : configuration - configuration
+*          listStore     - list store
+*          treeIter      - iterator to command in store
 *          name          - name
 * Output : -
-* Return : -
+* Return : TRUE iff saved
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configurationSaveCommand(const Command *command,
-                                    GKeyFile      *configuration,
-                                    const gchar   *name
-                                   )
+LOCAL gboolean configurationSaveCommand(GKeyFile     *configuration,
+                                        GtkListStore *listStore,
+                                        GtkTreeIter  *treeIterator,
+                                        const gchar  *name
+                                       )
 {
-  g_assert(command != NULL);
   g_assert(configuration != NULL);
+  g_assert(listStore != NULL);
+  g_assert(treeIterator != NULL);
   g_assert(name != NULL);
+
+  gboolean result = TRUE;
 
   GString *string = g_string_new(NULL);
 
-  gchar *titleEscaped            = stringEscape(command->title,":",'\\');
-  gchar *commandLineEscaped      = stringEscape(command->commandLine,":",'\\');
-  gchar *workingDirectoryEscaped = stringEscape(command->workingDirectory,":",'\\');
+  gchar    *title;
+  gchar    *commandLine;
+  gchar    *workingDirectory;
+  gboolean showButton;
+  gboolean showMenuItem;
+  gboolean inputCustomText;
+  gboolean runInDockerContainer;
+  gboolean runRemote;
+  gboolean parseOutput;
+  gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                     treeIterator,
+                     MODEL_COMMAND_TITLE,                   &title,
+                     MODEL_COMMAND_COMMAND_LINE,            &commandLine,
+                     MODEL_COMMAND_WORKING_DIRECTORY,       &workingDirectory,
+                     MODEL_COMMAND_SHOW_BUTTON,             &showButton,
+                     MODEL_COMMAND_SHOW_MENU_ITEM,          &showMenuItem,
+                     MODEL_COMMAND_INPUT_CUSTOM_TEXT,       &inputCustomText,
+                     MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
+                     MODEL_COMMAND_RUN_REMOTE,              &runRemote,
+                     MODEL_COMMAND_PARSE_OUTPUT,            &parseOutput,
+                     MODEL_END
+                    );
+  g_assert(title != NULL);
+  g_assert(commandLine != NULL);
+  g_assert(workingDirectory != NULL);
+
+  gchar *titleEscaped            = stringEscape(title,":",'\\');
+  gchar *commandLineEscaped      = stringEscape(commandLine,":",'\\');
+  gchar *workingDirectoryEscaped = stringEscape(workingDirectory,":",'\\');
   g_string_printf(string,
-                  "%s:%s:%s:%s:%s:%s:%s:%s",
+                  "%s:%s:%s:%s:%s:%s:%s:%s:%s",
                   titleEscaped,
                   commandLineEscaped,
                   workingDirectoryEscaped,
-                  command->showButton ? "yes":"no",
-                  command->showMenuItem ? "yes":"no",
-                  command->inputCustomText ? "yes":"no",
-                  command->runInDockerContainer ? "yes":"no",
-                  command->parseOutput ? "yes":"no"
+                  showButton ? "yes":"no",
+                  showMenuItem ? "yes":"no",
+                  inputCustomText ? "yes":"no",
+                  runInDockerContainer ? "yes":"no",
+                  runRemote ? "yes":"no",
+                  parseOutput ? "yes":"no"
                  );
   g_free(workingDirectoryEscaped);
   g_free(commandLineEscaped);
@@ -727,13 +558,100 @@ LOCAL void configurationSaveCommand(const Command *command,
                         string->str
                        );
 
+  g_free(workingDirectory);
+  g_free(commandLine);
+  g_free(title);
+
   g_string_free(string,TRUE);
+
+  return result;
 }
 
 /***********************************************************************\
-* Name   : existsRegEx
-* Purpose: check if regex already exists
-* Input  : treeModel - tree model
+* Name   : configurationSaveCommandList
+* Purpose: save commands into configuration
+* Input  : configuration - configuration
+*          listStore     - list store
+* Output : -
+* Return : TRUE iff saved
+* Notes  : -
+\***********************************************************************/
+
+LOCAL gboolean configurationSaveCommandList(GKeyFile     *configuration,
+                                            GtkListStore *listStore
+                                           )
+{
+  g_assert(configuration != NULL);
+  g_assert(listStore != NULL);
+
+  gboolean result = TRUE;
+
+  GtkTreeIter treeIterator;
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(listStore), &treeIterator))
+  {
+    guint i = 0;
+    do
+    {
+      gchar name[64];
+      g_snprintf(name,sizeof(name),"command%u",i);
+      result = configurationSaveCommand(configuration, listStore, &treeIterator, name);
+
+      i++;
+    }
+    while (result && gtk_tree_model_iter_next(GTK_TREE_MODEL(listStore), &treeIterator));
+  }
+
+  return result;
+}
+
+// TODO: used?
+#if 0
+/***********************************************************************\
+* Name   : existsCommand
+* Purpose: check if command already exists
+* Input  : listStore - model
+*          title     - command title
+* Output : -
+* Return : TRUE iff already exists
+* Notes  : -
+\***********************************************************************/
+
+LOCAL gboolean existsCommand(GtkListStore *listStore,
+                             const gchar  *title
+                            )
+{
+  g_assert(listStore != NULL);
+  g_assert(title != NULL);
+
+  gboolean found = FALSE;
+  GtkTreeIter treeIterator;
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(listStore), &treeIterator))
+  {
+    do
+    {
+      gchar      *otherTitle;
+      gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                         &treeIterator,
+                         MODEL_COMMAND_TITLE, &otherTitle,
+                         MODEL_END
+                        );
+      g_assert(otherTitle != NULL);
+
+      found = stringEquals(title, otherTitle);
+
+      g_free(otherTitle);
+    }
+    while (!found && gtk_tree_model_iter_next(GTK_TREE_MODEL(listStore), &treeIterator));
+  }
+
+  return found;
+}
+#endif
+
+/***********************************************************************\
+* Name   : existsRegex
+* Purpose: check if regular expression already exists
+* Input  : listStore     - list store
 *          regexLanguage - regex language
 *          regexGroup    - regex group
 *          regexType     - regex type
@@ -743,72 +661,158 @@ LOCAL void configurationSaveCommand(const Command *command,
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean existsRegEx(GtkTreeModel *treeModel,
+LOCAL gboolean existsRegex(GtkListStore *listStore,
                            const gchar  *regexLanguage,
                            const gchar  *regexGroup,
                            RegexTypes   regexType,
                            const gchar  *regex
                           )
 {
+  g_assert(listStore != NULL);
+  g_assert(regexLanguage != NULL);
+  g_assert(regexGroup != NULL);
+  g_assert(regex != NULL);
+
   gboolean found = FALSE;
-  GtkTreeIter treeIter;
-  if (gtk_tree_model_get_iter_first(treeModel, &treeIter))
+  GtkTreeIter treeIterator;
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(listStore), &treeIterator))
   {
     do
     {
       gchar      *otherRegExLanguage;
       gchar      *otherRegExGroup;
-      RegexTypes otherRegExType;
+      RegexTypes otherRegexType;
       gchar      *otherRegEx;
-      gtk_tree_model_get(treeModel,
-                         &treeIter,
+      gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                         &treeIterator,
                          MODEL_REGEX_LANGUAGE, &otherRegExLanguage,
                          MODEL_REGEX_GROUP,    &otherRegExGroup,
-                         MODEL_REGEX_TYPE,     &otherRegExType,
+                         MODEL_REGEX_TYPE,     &otherRegexType,
                          MODEL_REGEX_REGEX,    &otherRegEx,
-                         MODEL_REGEX_END
+                         MODEL_END
                         );
+      g_assert(otherRegExLanguage != NULL);
+      g_assert(otherRegExGroup != NULL);
+      g_assert(otherRegexType >= REGEX_TYPE_MIN);
+      g_assert(otherRegexType <= REGEX_TYPE_MAX);
+      g_assert(otherRegEx != NULL);
+
       found =    stringEquals(regexLanguage, otherRegExLanguage)
               && stringEquals(regexGroup, otherRegExGroup)
-              && (regexType == otherRegExType)
+              && (regexType == otherRegexType)
               && stringEquals(regex, otherRegEx);
 
       g_free(otherRegEx);
       g_free(otherRegExGroup);
       g_free(otherRegExLanguage);
     }
-    while (!found && gtk_tree_model_iter_next(treeModel, &treeIter));
+    while (!found && gtk_tree_model_iter_next(GTK_TREE_MODEL(listStore), &treeIterator));
   }
 
   return found;
 }
 
 /***********************************************************************\
-* Name   : configurationLoadRegexList
-* Purpose: load regex list from configuration
-* Input  : listStore     - list store variable
-*          configuration - configuration to load values from
+* Name   : configurationLoadRegex
+* Purpose: load regular expression from configuration
+* Input  : configuration - configuration to load values from
+*          listStore     - list store
 *          name          - value name
 * Output : -
-* Return : -
+* Return : TRUE iff loaded
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configurationLoadRegexList(GtkListStore *listStore,
-                                      GKeyFile     *configuration,
+LOCAL gboolean configurationLoadRegex(GKeyFile     *configuration,
+                                      GtkListStore *listStore,
                                       const gchar  *name
                                      )
 {
-  g_assert(listStore != NULL);
   g_assert(configuration != NULL);
+  g_assert(listStore != NULL);
   g_assert(name != NULL);
 
-  gchar **stringArray = g_key_file_get_string_list(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL, NULL);
+  gboolean result = FALSE;
+
+  gchar *string = g_key_file_get_string(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL);
+  if (string != NULL)
+  {
+    // parse
+    gchar **tokens   = stringSplit(string, ":", '\\', 4);
+    g_assert(tokens != NULL);
+    guint tokenCount = g_strv_length(tokens);
+
+    const gchar *regexLanguage = (tokenCount >= 1) ? tokens[0] : "";
+    const gchar *regexGroup    = (tokenCount >= 2) ? tokens[1] : "";
+    RegexTypes  regexType      = REGEX_TYPE_NONE;
+    if (tokenCount >= 3)
+    {
+      if      (stringEquals(tokens[2], REGEX_TYPE_STRINGS[REGEX_TYPE_ENTER    ])) regexType = REGEX_TYPE_ENTER;
+      else if (stringEquals(tokens[2], REGEX_TYPE_STRINGS[REGEX_TYPE_LEAVE    ])) regexType = REGEX_TYPE_LEAVE;
+      else if (stringEquals(tokens[2], REGEX_TYPE_STRINGS[REGEX_TYPE_ERROR    ])) regexType = REGEX_TYPE_ERROR;
+      else if (stringEquals(tokens[2], REGEX_TYPE_STRINGS[REGEX_TYPE_WARNING  ])) regexType = REGEX_TYPE_WARNING;
+      else if (stringEquals(tokens[2], REGEX_TYPE_STRINGS[REGEX_TYPE_EXTENSION])) regexType = REGEX_TYPE_EXTENSION;
+    }
+    const gchar *regex         = (tokenCount >= 4) ? tokens[3] : "";
+
+    if (!existsRegex(listStore,
+                     regexLanguage,
+                     regexGroup,
+                     regexType,
+                     regex
+                    )
+       )
+    {
+      // add regex definition
+      gtk_list_store_insert_with_values(listStore,
+                                        NULL,
+                                        -1,
+                                        MODEL_REGEX_LANGUAGE, (tokenCount >= 1) ? tokens[0] : "",
+                                        MODEL_REGEX_GROUP,    (tokenCount >= 2) ? tokens[1] : "",
+                                        MODEL_REGEX_TYPE,     regexType,
+                                        MODEL_REGEX_REGEX,    (tokenCount >= 4) ? tokens[3] : "",
+                                        MODEL_END
+                                       );
+    }
+
+    // free resources
+    g_strfreev(tokens);
+    g_free(string);
+
+    result = TRUE;
+  }
+
+  return result;
+}
+
+/***********************************************************************\
+* Name   : configurationLoadRegexList
+* Purpose: load regex list from configuration
+* Input  : configuration - configuration to load values from
+*          listStore     - list store variable
+* Output : -
+* Return : TRUE iff loaded
+* Notes  : -
+\***********************************************************************/
+
+LOCAL gboolean configurationLoadRegexList(GKeyFile     *configuration,
+                                          GtkListStore *listStore
+                                         )
+{
+  g_assert(listStore != NULL);
+  g_assert(configuration != NULL);
+
+  gboolean result = TRUE;
+
+  gtk_list_store_clear(listStore);
+
+// TODO: remove, deprecated
+#if 1
+  gchar **stringArray = g_key_file_get_string_list(configuration, CONFIGURATION_GROUP_BUILDER, "regexs", NULL, NULL);
   if (stringArray != NULL)
   {
     gchar **string;
 
-    gtk_list_store_clear(listStore);
     foreach_strv(string, stringArray)
     {
       gchar **tokens   = g_strsplit(*string, ":", 4);
@@ -826,7 +830,7 @@ LOCAL void configurationLoadRegexList(GtkListStore *listStore,
         else if (stringEquals(tokens[2], REGEX_TYPE_STRINGS[REGEX_TYPE_EXTENSION])) regexType = REGEX_TYPE_EXTENSION;
       }
 
-      if (!existsRegEx(GTK_TREE_MODEL(listStore),
+      if (!existsRegex(listStore,
                        (tokenCount >= 1) ? tokens[0] : "",
                        (tokenCount >= 2) ? tokens[1] : "",
                        regexType,
@@ -842,7 +846,7 @@ LOCAL void configurationLoadRegexList(GtkListStore *listStore,
                                           MODEL_REGEX_GROUP,    (tokenCount >= 2) ? tokens[1] : "",
                                           MODEL_REGEX_TYPE,     regexType,
                                           MODEL_REGEX_REGEX,    (tokenCount >= 4) ? tokens[3] : "",
-                                          MODEL_REGEX_END
+                                          MODEL_END
                                          );
       }
 
@@ -851,29 +855,123 @@ LOCAL void configurationLoadRegexList(GtkListStore *listStore,
     }
     g_strfreev(stringArray);
   }
+#endif
+
+  guint    i = 0;
+  do
+  {
+    gchar    name[64];
+    g_snprintf(name,sizeof(name),"regex%u",i);
+    result = configurationLoadRegex(configuration, listStore, name);
+    i++;
+  }
+  while (result);
+
+  return result;
+}
+
+/***********************************************************************\
+* Name   : configurationSaveRegex
+* Purpose: save command into configuration
+* Input  : configuration - configuration
+*          listStore     - list store
+*          treeIter      - iterator to command in store
+*          name          - name
+* Output : -
+* Return : TRUE iff saved
+* Notes  : -
+\***********************************************************************/
+
+LOCAL gboolean configurationSaveRegex(GKeyFile     *configuration,
+                                      GtkListStore *listStore,
+                                      GtkTreeIter  *treeIterator,
+                                      const gchar  *name
+                                     )
+{
+  g_assert(configuration != NULL);
+  g_assert(listStore != NULL);
+  g_assert(treeIterator != NULL);
+  g_assert(name != NULL);
+
+  gboolean result = TRUE;
+
+  GString *string = g_string_new(NULL);
+
+  gchar      *regexLanguage;
+  gchar      *regexGroup;
+  RegexTypes regexType;
+  gchar      *regex;
+  gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                     treeIterator,
+                     MODEL_REGEX_LANGUAGE, &regexLanguage,
+                     MODEL_REGEX_GROUP,    &regexGroup,
+                     MODEL_REGEX_TYPE,     &regexType,
+                     MODEL_REGEX_REGEX,    &regex,
+                     MODEL_END
+                    );
+  g_assert(regexLanguage != NULL);
+  g_assert(regexGroup != NULL);
+  g_assert(regex != NULL);
+
+  gchar *regexTypeText;
+  switch (regexType)
+  {
+    case REGEX_TYPE_NONE:      regexTypeText = "";          break;
+    case REGEX_TYPE_ENTER:     regexTypeText = "enter";     break;
+    case REGEX_TYPE_LEAVE:     regexTypeText = "leave";     break;
+    case REGEX_TYPE_ERROR:     regexTypeText = "error";     break;
+    case REGEX_TYPE_WARNING:   regexTypeText = "warning";   break;
+    case REGEX_TYPE_EXTENSION: regexTypeText = "extension"; break;
+  }
+  g_string_printf(string,
+                  "%s:%s:%s:%s",
+                  regexLanguage,
+                  regexGroup,
+                  regexTypeText,
+                  regex
+                 );
+
+  g_key_file_set_string(configuration,
+                        CONFIGURATION_GROUP_BUILDER,
+                        name,
+                        string->str
+                       );
+
+  g_free(regex);
+  g_free(regexGroup);
+  g_free(regexLanguage);
+
+  g_string_free(string,TRUE);
+
+  return result;
 }
 
 /***********************************************************************\
 * Name   : configurationSaveRegexList
 * Purpose: save regex list into configuration
-* Input  : treeModel     - list store model
-*          configuration - configuration
-*          name          - name
+* Input  : configuration - configuration
+*          listStore     - list store
 * Output : -
-* Return : -
+* Return : TRUE iff saved
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configurationSaveRegexList(GtkTreeModel *treeModel,
-                                      GKeyFile     *configuration,
-                                      const gchar  *name
-                                     )
+LOCAL gboolean configurationSaveRegexList(GKeyFile     *configuration,
+                                          GtkListStore *listStore
+                                         )
 {
+  g_assert(configuration != NULL);
+  g_assert(listStore != NULL);
+
+  gboolean result = TRUE;
+
+// TODO: remove deprecated
+#if 0
   GPtrArray *regexArray = g_ptr_array_new_with_free_func(g_free);
 
   // get error/warning regular expressions as arrays
-  GtkTreeIter treeIter;
-  if (gtk_tree_model_get_iter_first(treeModel, &treeIter))
+  GtkTreeIter treeIterator;
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(listStore), &treeIterator))
   {
     gchar      *regexLanguage;
     gchar      *regexGroup;
@@ -882,13 +980,13 @@ LOCAL void configurationSaveRegexList(GtkTreeModel *treeModel,
     GString    *string = g_string_new(NULL);
     do
     {
-      gtk_tree_model_get(treeModel,
-                         &treeIter,
+      gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                         &treeIterator,
                          MODEL_REGEX_LANGUAGE, &regexLanguage,
                          MODEL_REGEX_GROUP,    &regexGroup,
                          MODEL_REGEX_TYPE,     &regexType,
                          MODEL_REGEX_REGEX,    &regex,
-                         MODEL_REGEX_END
+                         MODEL_END
                         );
       g_assert(regexLanguage != NULL);
       g_assert(regexGroup != NULL);
@@ -903,65 +1001,87 @@ LOCAL void configurationSaveRegexList(GtkTreeModel *treeModel,
       g_free(regexGroup);
       g_free(regexLanguage);
     }
-    while (gtk_tree_model_iter_next(treeModel, &treeIter));
+    while (gtk_tree_model_iter_next(GTK_TREE_MODEL(listStore), &treeIterator));
     g_string_free(string, TRUE);
   }
 
   g_key_file_set_string_list(configuration,
                              CONFIGURATION_GROUP_BUILDER,
-                             name,
+                             "regexs",
                              (const gchar**)regexArray->pdata,
                              regexArray->len
                             );
 
   // free resources
   g_ptr_array_free(regexArray, TRUE);
+#endif
+
+  GtkTreeIter treeIterator;
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(listStore), &treeIterator))
+  {
+    guint i = 0;
+    do
+    {
+      gchar name[64];
+      g_snprintf(name,sizeof(name),"regex%u",i);
+      result = configurationSaveRegex(configuration, listStore, &treeIterator, name);
+
+      i++;
+    }
+    while (result && gtk_tree_model_iter_next(GTK_TREE_MODEL(listStore), &treeIterator));
+  }
+
+  return result;
 }
 
 /***********************************************************************\
 * Name   : configurationLoadColor
 * Purpose: load color from configuration
-* Input  : rgba          - color RGBA variable
-*          configuration - configuration to load values from
+* Input  : configuration - configuration to load values from
+*          value         - value variable
 *          name          - value name
-* Output : -
+* Output : value - RGBA color
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configurationLoadColor(GdkRGBA     *rgba,
-                                  GKeyFile    *configuration,
+LOCAL void configurationLoadColor(GKeyFile    *configuration,
+                                  GdkRGBA     *value,
                                   const gchar *name
                                  )
 {
-  g_assert(rgba != NULL);
   g_assert(configuration != NULL);
+  g_assert(value != NULL);
   g_assert(name != NULL);
 
   GdkRGBA color;
   if (gdk_rgba_parse(&color, g_key_file_get_string(configuration, CONFIGURATION_GROUP_BUILDER, name, NULL)))
   {
-    (*rgba) = color;
+    (*value) = color;
   }
 }
 
 /***********************************************************************\
 * Name   : configurationSaveColor
 * Purpose: save color into configuration
-* Input  : color         - color to save
-*          configuration - configuration
+* Input  : configuration - configuration
+*          value         - color to save
 *          name          - name
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configurationSaveColor(const GdkRGBA *color,
-                                  GKeyFile      *configuration,
+LOCAL void configurationSaveColor(GKeyFile      *configuration,
+                                  const GdkRGBA *value,
                                   const gchar   *name
                                  )
 {
-  gchar *colorString = gdk_rgba_to_string(color);
+  g_assert(configuration != NULL);
+  g_assert(value != NULL);
+  g_assert(name != NULL);
+
+  gchar *colorString = gdk_rgba_to_string(value);
 
   g_key_file_set_string(configuration, CONFIGURATION_GROUP_BUILDER, name, colorString);
 
@@ -985,39 +1105,22 @@ LOCAL void configurationLoad()
   g_key_file_load_from_file(configuration, pluginData.configuration.filePath, G_KEY_FILE_NONE, NULL);
 
   // get commands
-  g_list_free_full(g_steal_pointer(&pluginData.configuration.commandList),freeCommand);
-  guint   i = 0;
-  Command *command;
-  do
-  {
-    gchar    name[64];
-    g_snprintf(name,sizeof(name),"command%d",i);
-    command = configurationLoadCommand(configuration, name);
-    if (command != NULL)
-    {
-//fprintf(stderr,"%s:%d: loaded global i=%d\n",__FILE__,__LINE__,i);
-      pluginData.configuration.commandList = g_list_append(pluginData.configuration.commandList, command);
-    }
-    i++;
-  }
-  while (command != NULL);
-fprintf(stderr,"%s:%d: le3ngh=%d\n",__FILE__,__LINE__,g_list_length(pluginData.configuration.commandList));
+  configurationLoadCommandList(configuration, pluginData.configuration.commandStore);
 
   // get regular expressions
-  configurationLoadRegexList(pluginData.configuration.regexStore,              configuration, "regexs");
+  configurationLoadRegexList(configuration, pluginData.configuration.regexStore);
 
   // get values
-  configurationLoadBoolean  (&pluginData.configuration.errorIndicators,        configuration, "errorIndicators");
-  configurationLoadColor    (&pluginData.configuration.errorIndicatorColor,    configuration, "errorIndicatorColor");
-  configurationLoadBoolean  (&pluginData.configuration.warningIndicators,      configuration, "warningIndicators");
-  configurationLoadColor    (&pluginData.configuration.warningIndicatorColor,  configuration, "warningIndicatorColor");
+  configurationLoadBoolean  (configuration, &pluginData.configuration.errorIndicators,        "errorIndicators");
+  configurationLoadColor    (configuration, &pluginData.configuration.errorIndicatorColor,    "errorIndicatorColor");
+  configurationLoadBoolean  (configuration, &pluginData.configuration.warningIndicators,      "warningIndicators");
+  configurationLoadColor    (configuration, &pluginData.configuration.warningIndicatorColor,  "warningIndicatorColor");
 
-  configurationLoadBoolean  (&pluginData.configuration.addProjectRegExResults, configuration, "addProjectRegExResults");
-  configurationLoadBoolean  (&pluginData.configuration.abortButton,            configuration, "abortButton");
-  configurationLoadBoolean  (&pluginData.configuration.autoSaveAll,            configuration, "autoSaveAll");
-  configurationLoadBoolean  (&pluginData.configuration.autoShowFirstError,     configuration, "autoShowFirstError");
-  configurationLoadBoolean  (&pluginData.configuration.autoShowFirstWarning,   configuration, "autoShowFirstWarning");
-fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
+  configurationLoadBoolean  (configuration, &pluginData.configuration.addProjectRegExResults, "addProjectRegExResults");
+  configurationLoadBoolean  (configuration, &pluginData.configuration.abortButton,            "abortButton");
+  configurationLoadBoolean  (configuration, &pluginData.configuration.autoSaveAll,            "autoSaveAll");
+  configurationLoadBoolean  (configuration, &pluginData.configuration.autoShowFirstError,     "autoShowFirstError");
+  configurationLoadBoolean  (configuration, &pluginData.configuration.autoShowFirstWarning,   "autoShowFirstWarning");
 
   // free resources
   g_key_file_free(configuration);
@@ -1036,34 +1139,25 @@ LOCAL void configurationSave()
 {
   GKeyFile *configuration = g_key_file_new();
 
+  g_key_file_remove_group(configuration, CONFIGURATION_GROUP_BUILDER, NULL);
+
   // save commands
-  guint i = 0;
-  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
-  {
-    Command *command = (Command*)commandNode->data;
-    g_assert(command != NULL);
-
-    gchar name[64];
-    g_snprintf(name,sizeof(name),"command%d",i);
-    configurationSaveCommand(command, configuration, name);
-
-    i++;
-  }
+  (void)configurationSaveCommandList(configuration, pluginData.configuration.commandStore);
 
   // save regular expressions
-  configurationSaveRegexList(GTK_TREE_MODEL(pluginData.configuration.regexStore), configuration, "regexs");
+  (void)configurationSaveRegexList(configuration, pluginData.configuration.regexStore);
 
   // save values
-  g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "errorIndicators",pluginData.configuration.errorIndicators);
-  configurationSaveColor(&pluginData.configuration.errorIndicatorColor,   configuration, "errorIndicatorColor");
-  g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "warningIndicators",pluginData.configuration.warningIndicators);
-  configurationSaveColor(&pluginData.configuration.warningIndicatorColor, configuration, "warningIndicatorColor");
+  g_key_file_set_boolean(configuration, CONFIGURATION_GROUP_BUILDER, "errorIndicators",pluginData.configuration.errorIndicators);
+  configurationSaveColor(configuration, &pluginData.configuration.errorIndicatorColor, "errorIndicatorColor");
+  g_key_file_set_boolean(configuration, CONFIGURATION_GROUP_BUILDER, "warningIndicators",pluginData.configuration.warningIndicators);
+  configurationSaveColor(configuration, &pluginData.configuration.warningIndicatorColor, "warningIndicatorColor");
 
-  g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "addProjectRegExResults",pluginData.configuration.addProjectRegExResults);
-  g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "abortButton",           pluginData.configuration.abortButton);
-  g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "autoSaveAll",           pluginData.configuration.autoSaveAll);
-  g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "autoShowFirstError",    pluginData.configuration.autoShowFirstError);
-  g_key_file_set_boolean(configuration,     CONFIGURATION_GROUP_BUILDER, "autoShowFirstWarning",  pluginData.configuration.autoShowFirstWarning);
+  g_key_file_set_boolean(configuration, CONFIGURATION_GROUP_BUILDER, "addProjectRegExResults",pluginData.configuration.addProjectRegExResults);
+  g_key_file_set_boolean(configuration, CONFIGURATION_GROUP_BUILDER, "abortButton",           pluginData.configuration.abortButton);
+  g_key_file_set_boolean(configuration, CONFIGURATION_GROUP_BUILDER, "autoSaveAll",           pluginData.configuration.autoSaveAll);
+  g_key_file_set_boolean(configuration, CONFIGURATION_GROUP_BUILDER, "autoShowFirstError",    pluginData.configuration.autoShowFirstError);
+  g_key_file_set_boolean(configuration, CONFIGURATION_GROUP_BUILDER, "autoShowFirstWarning",  pluginData.configuration.autoShowFirstWarning);
 
   // create configuration directory (if it does not exists)
   gchar *configurationDir = g_path_get_dirname(pluginData.configuration.filePath);
@@ -1099,19 +1193,43 @@ LOCAL void projectConfigurationLoad(GKeyFile *configuration)
 {
   g_assert(configuration != NULL);
 
-  // load configuration values
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  // get commands
+  configurationLoadCommandList(configuration, pluginData.projectProperties.commandStore);
+
+  // get regular expressions
+// TODO:
+
+  // get values
+  configurationLoadString(configuration,  pluginData.projectProperties.errorRegEx,              "errorRegEx");
+  configurationLoadString(configuration,  pluginData.projectProperties.warningRegEx,            "warningRegEx");
+
+  configurationLoadString(configuration,  pluginData.projectProperties.remote.hostName,         "remoteHostName");
+  configurationLoadInteger(configuration, (gint*)&pluginData.projectProperties.remote.hostPort, "remoteHostPort");
+  configurationLoadString(configuration,  pluginData.projectProperties.remote.userName,         "remoteUserName");
+  configurationLoadString(configuration,  pluginData.projectProperties.remote.publicKey,        "remotePublicKey");
+  configurationLoadString(configuration,  pluginData.projectProperties.remote.privateKey,       "remotePrivateKey");
+
+  // set default values
+  if (pluginData.projectProperties.remote.hostPort == 0) pluginData.projectProperties.remote.hostPort = 22;
+  const gchar *homeDirectory = g_get_home_dir();
+  if (homeDirectory != NULL)
   {
-    gchar name[64];
-
-    g_snprintf(name,sizeof(name),"command%d",i);
-fprintf(stderr,"%s:%d: i=%d\n",__FILE__,__LINE__,i);
-// TODO:    configurationLoadCommand(&pluginData.projectProperties.commands[i], configuration, name);
+    if (stringIsEmpty(pluginData.projectProperties.remote.publicKey->str))
+    {
+      g_string_printf(pluginData.projectProperties.remote.publicKey,
+                      "%s/.ssh/id_rsa.pub",
+                      homeDirectory
+                     );
+    }
+    if (stringIsEmpty(pluginData.projectProperties.remote.privateKey->str))
+    {
+      g_string_printf(pluginData.projectProperties.remote.privateKey,
+                      "%s/.ssh/id_rsa",
+                      homeDirectory
+                     );
+    }
   }
-
-  configurationLoadString(pluginData.projectProperties.errorRegEx,   configuration, "errorRegEx");
-  configurationLoadString(pluginData.projectProperties.warningRegEx, configuration, "warningRegEx");
-fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
+  g_free((gchar*)homeDirectory);
 }
 
 /***********************************************************************\
@@ -1127,17 +1245,25 @@ LOCAL void projectConfigurationSave(GKeyFile *configuration)
 {
   g_assert(configuration != NULL);
 
-  // save configuration values
-  for (guint i = 0; i < MAX_COMMANDS; i++)
-  {
-    gchar name[64];
+  g_key_file_remove_group(configuration, CONFIGURATION_GROUP_BUILDER, NULL);
 
-    g_snprintf(name,sizeof(name),"command%d",i);
-    configurationSaveCommand(&pluginData.projectProperties.commands[i], configuration, name);
-  }
+  // save commands
+  (void)configurationSaveCommandList(configuration, pluginData.projectProperties.commandStore);
 
-  g_key_file_set_string(configuration, CONFIGURATION_GROUP_BUILDER, "errorRegEx",   pluginData.projectProperties.errorRegEx->str);
-  g_key_file_set_string(configuration, CONFIGURATION_GROUP_BUILDER, "warningRegEx", pluginData.projectProperties.warningRegEx->str);
+  // save regular expressions
+// TODO:
+//  (void)configurationSaveRegexList(configuration, pluginData.projectProperties.regexStore);
+
+  // save values
+// TODO: use configurationSaveString/Integer
+  g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "errorRegEx",      pluginData.projectProperties.errorRegEx->str);
+  g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "warningRegEx",    pluginData.projectProperties.warningRegEx->str);
+
+  g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remoteHostName",  pluginData.projectProperties.remote.hostName->str);
+  g_key_file_set_integer(configuration, CONFIGURATION_GROUP_BUILDER, "remoteHostPort",  pluginData.projectProperties.remote.hostPort);
+  g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remoteUserName",  pluginData.projectProperties.remote.userName->str);
+  g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remotePublicKey", pluginData.projectProperties.remote.publicKey->str);
+  g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remotePrivateKey",pluginData.projectProperties.remote.privateKey->str);
 }
 
 // ---------------------------------------------------------------------
@@ -1186,6 +1312,39 @@ LOCAL void setEnableToolbar(gboolean enabled)
 }
 
 /***********************************************************************\
+* Name   : printMessage
+* Purpose: print message to message tab
+* Input  : format - printf-like format string
+*          ...    - optionla arguments
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void printMessage(gchar const *format, ...)
+{
+  g_assert(format != NULL);
+
+  GString *message = g_string_new(NULL);
+  g_assert(message != NULL);
+
+  va_list arguments;
+  va_start(arguments, format);
+  g_string_vprintf(message,format,arguments);
+  va_end(arguments);
+
+  gtk_list_store_insert_with_values(pluginData.build.messagesStore,
+                                    NULL,
+                                    -1,
+                                    MODEL_MESSAGE_COLOR,   COLOR_BUILD_INFO,
+                                    MODEL_MESSAGE_MESSAGE, message->str,
+                                    MODEL_END
+                                   );
+
+  g_string_free(message, TRUE);
+}
+
+/***********************************************************************\
 * Name   : clearAll
 * Purpose: clear all messages and indicators
 * Input  : -
@@ -1213,11 +1372,11 @@ LOCAL void clearAll()
 
   // clear iterators
   string_stack_clear(pluginData.build.directoryPrefixStack);
-  pluginData.build.errorsTreeIterValid              = FALSE;
-  pluginData.build.warningsTreeIterValid            = FALSE;
-  pluginData.build.lastErrorsWarningsInsertStore    = NULL;
-  pluginData.build.lastErrorsWarningsInsertTreeIter = NULL;
-  pluginData.build.errorWarningIndicatorsCount      = 0;
+  pluginData.build.errorsTreeIterorValid                = FALSE;
+  pluginData.build.warningsTreeIterorValid              = FALSE;
+  pluginData.build.lastErrorsWarningsInsertStore        = NULL;
+  pluginData.build.lastErrorsWarningsInsertTreeIterator = NULL;
+  pluginData.build.errorWarningIndicatorsCount          = 0;
 
   gtk_label_set_text(GTK_LABEL(pluginData.widgets.errorsTabLabel), "Errors");
   gtk_label_set_text(GTK_LABEL(pluginData.widgets.warningsTabLabel), "Warnings");
@@ -1287,11 +1446,390 @@ LOCAL void showBuildWarningsTab()
 }
 
 /***********************************************************************\
+* Name   : onFocusNextWidget
+* Purpose: focus next widget
+* Input  : widget   - current widget (not used)
+*          userData - user data: next widget to focus
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onFocusNextWidget(GtkWidget *widget,
+                             gpointer  userData
+                            )
+{
+  GtkWidget *nextWidget = GTK_WIDGET(userData);
+  g_assert(nextWidget != NULL);
+
+  UNUSED_VARIABLE(widget);
+
+  gtk_widget_grab_focus(nextWidget);
+}
+
+/***********************************************************************\
+* Name   : dialogCommand
+* Purpose: input command dialog
+* Input  : parentWindow - parent window
+*          title        - dialog title
+* Output : titleString            - command tile
+*          commandLineString      - command line
+*          workingDirectoryString - working directory
+*          showButton             - show button
+*          showMenuItem           - show menu item
+*          inputCustomText        - input custom text
+*          runInDockerContainer   - run in docker container only
+*          runRemote              - run remote only
+*          parseOutput            - parse output
+* Return : TRUE on "ok", FALSE otherwise
+* Notes  : -
+\***********************************************************************/
+
+LOCAL gboolean dialogCommand(GtkWindow   *parentWindow,
+                             const gchar *title,
+                             GString     *titleString,
+                             GString     *commandLineString,
+                             GString     *workingDirectoryString,
+                             gboolean    *showButton,
+                             gboolean    *showMenuItem,
+                             gboolean    *inputCustomText,
+                             gboolean    *runInDockerContainer,
+                             gboolean    *runRemote,
+                             gboolean    *parseOutput
+                            )
+{
+  GtkWidget *widgetTitle;
+  GtkWidget *widgetCommandLine;
+  GtkWidget *widgetWorkingDirectory;
+  GtkWidget *widgetShowButton, *widgetShowMenuItem, *widgetInputCustomText, *widgetRunInDockerContainer, *widgetRunRemote, *widgetParseOutput;
+  GtkWidget *widgetOK;
+  gint      result;
+
+  g_assert(parentWindow != NULL);
+  g_assert(title != NULL);
+  g_assert(titleString != NULL);
+  g_assert(commandLineString != NULL);
+  g_assert(workingDirectoryString != NULL);
+  g_assert(showButton != NULL);
+  g_assert(showMenuItem != NULL);
+  g_assert(inputCustomText != NULL);
+  g_assert(runInDockerContainer != NULL);
+  g_assert(parseOutput != NULL);
+
+  // create dialog
+  GtkWidget *dialog = gtk_dialog_new_with_buttons(title,
+                                                  parentWindow,
+                                                  GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                  _("_Cancel"),
+                                                  GTK_RESPONSE_CANCEL,
+                                                  NULL
+                                                 );
+
+  widgetOK = gtk_dialog_add_button(GTK_DIALOG(dialog), _("_OK"), GTK_RESPONSE_ACCEPT);
+  g_object_set_data(G_OBJECT(dialog), "ok", widgetOK);
+
+  GtkBox *vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+  gtk_widget_set_margin_top(GTK_WIDGET(vbox), 6);
+  gtk_widget_set_margin_bottom(GTK_WIDGET(vbox), 6);
+  {
+    GtkGrid *grid = GTK_GRID(gtk_grid_new());
+    gtk_grid_set_row_spacing(grid, 6);
+    gtk_grid_set_column_spacing(grid, 12);
+    gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
+    g_object_set(grid, "margin", 6, NULL);
+    {
+      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Title"), NULL));
+      addGrid(grid, 0, 1, 1, newEntry(&widgetTitle, G_OBJECT(dialog), "title", "Command title."));
+      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Command"), NULL));
+      addGrid(grid, 1, 1, 1, newEntry(&widgetCommandLine, G_OBJECT(dialog), "commandLine", "Command line."));
+      addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Working directory"), NULL));
+      addGrid(grid, 2, 1, 1, newWorkingDirectoryChooser(&widgetWorkingDirectory, G_OBJECT(dialog), "workingDirectory", "Working directory for command."));
+      GtkBox *hbox;
+      hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL,6));
+      {
+        addBox(hbox, FALSE, newCheckButton(&widgetShowButton,           G_OBJECT(dialog), "showButton",           _("button"), "Show button."));
+        addBox(hbox, FALSE, newCheckButton(&widgetShowMenuItem,         G_OBJECT(dialog), "showMenuItem",         _("menu"),   "Show menu item."));
+        addBox(hbox, FALSE, newCheckButton(&widgetInputCustomText,      G_OBJECT(dialog), "inputCustomText",      _("input"),  "Input custom text."));
+        addBox(hbox, FALSE, newCheckButton(&widgetRunInDockerContainer, G_OBJECT(dialog), "runInDockerContainer", _("docker"), "Run in docker container."));
+        addBox(hbox, FALSE, newCheckButton(&widgetRunRemote,            G_OBJECT(dialog), "runRemote",            _("remote"), "Run remote."));
+        addBox(hbox, FALSE, newCheckButton(&widgetParseOutput,          G_OBJECT(dialog), "parseOutput",          _("parse"),  "Parse output for errors/warnings."));
+      }
+      addGrid(grid, 3, 0, 2, GTK_WIDGET(hbox));
+    }
+    addBox(vbox, FALSE, GTK_WIDGET(grid));
+  }
+  addBox(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(dialog))), TRUE, GTK_WIDGET(vbox));
+  gtk_widget_show_all(dialog);
+
+  // set data
+  gtk_entry_set_text(GTK_ENTRY(widgetTitle), titleString->str);
+  gtk_entry_set_text(GTK_ENTRY(widgetCommandLine), commandLineString->str);
+  gtk_entry_set_text(GTK_ENTRY(widgetWorkingDirectory), workingDirectoryString->str);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetShowButton), *showButton);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetShowMenuItem), *showMenuItem);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetInputCustomText), *inputCustomText);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRunInDockerContainer), *runInDockerContainer);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRunRemote), *runRemote);
+// TODO:
+gtk_widget_set_sensitive(widgetRunRemote, FALSE);
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetParseOutput), *parseOutput);
+
+  // run dialog
+  result = gtk_dialog_run(GTK_DIALOG(dialog));
+  if (result == GTK_RESPONSE_ACCEPT)
+  {
+    // get result
+    g_string_assign(titleString, gtk_entry_get_text(GTK_ENTRY(widgetTitle)));
+    g_string_assign(commandLineString, gtk_entry_get_text(GTK_ENTRY(widgetCommandLine)));
+    g_string_assign(workingDirectoryString, gtk_entry_get_text(GTK_ENTRY(widgetWorkingDirectory)));
+    (*showButton          ) = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetShowButton));
+    (*showMenuItem        ) = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetShowMenuItem));
+    (*inputCustomText     ) = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetInputCustomText));
+    (*runInDockerContainer) = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetRunInDockerContainer));
+    (*runRemote           ) = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetRunRemote));
+    (*parseOutput         ) = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetParseOutput));
+  }
+
+  // free resources
+  gtk_widget_destroy(dialog);
+
+  return (result == GTK_RESPONSE_ACCEPT);
+}
+
+/***********************************************************************\
+* Name   : addCommand
+* Purpose: add command
+* Input  : listStore - list store
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void addCommand(GtkListStore *listStore)
+{
+  g_assert(geany_data != NULL);
+  g_assert(geany_data->main_widgets != NULL);
+
+  GString  *titleString            = g_string_new(NULL);
+  GString  *commandLineString      = g_string_new(NULL);
+  GString  *workingDirectoryString = g_string_new(NULL);
+  gboolean showButton              = TRUE;
+  gboolean showMenuItem            = TRUE;
+  gboolean inputCustomText         = FALSE;
+  gboolean runInDockerContainer    = FALSE;
+  gboolean runRemote               = FALSE;
+  gboolean parseOutput             = TRUE;
+  if (dialogCommand(GTK_WINDOW(geany_data->main_widgets->window),
+                    _("Add command"),
+                    titleString,
+                    commandLineString,
+                    workingDirectoryString,
+                    &showButton,
+                    &showMenuItem,
+                    &inputCustomText,
+                    &runInDockerContainer,
+                    &runRemote,
+                    &parseOutput
+                   )
+     )
+  {
+    gtk_list_store_insert_with_values(listStore,
+                                      NULL,
+                                      -1,
+                                      MODEL_COMMAND_TITLE,                   titleString->str,
+                                      MODEL_COMMAND_COMMAND_LINE,            commandLineString->str,
+                                      MODEL_COMMAND_WORKING_DIRECTORY,       workingDirectoryString->str,
+                                      MODEL_COMMAND_SHOW_BUTTON,             showButton,
+                                      MODEL_COMMAND_SHOW_MENU_ITEM,          showMenuItem,
+                                      MODEL_COMMAND_INPUT_CUSTOM_TEXT,       inputCustomText,
+                                      MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, runInDockerContainer,
+                                      MODEL_COMMAND_RUN_REMOTE,              runRemote,
+                                      MODEL_COMMAND_PARSE_OUTPUT,            parseOutput,
+                                      MODEL_END
+                                     );
+  }
+  g_string_free(workingDirectoryString, TRUE);
+  g_string_free(commandLineString, TRUE);
+  g_string_free(titleString, TRUE);
+}
+
+/***********************************************************************\
+* Name   : cloneCommand
+* Purpose: clone command
+* Input  : listStore - model
+*          treeIter  - iterator in model
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void cloneCommand(GtkListStore *listStore,
+                        GtkTreeIter  *treeIter
+                       )
+{
+  g_assert(geany_data != NULL);
+  g_assert(geany_data->main_widgets != NULL);
+  g_assert(listStore != NULL);
+  g_assert(treeIter != NULL);
+
+  gchar    *title;
+  gchar    *commandLine;
+  gchar    *workingDirectory;
+  gboolean showButton;
+  gboolean showMenuItem;
+  gboolean inputCustomText;
+  gboolean runInDockerContainer;
+  gboolean runRemote;
+  gboolean parseOutput;
+  gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                     treeIter,
+                     MODEL_COMMAND_TITLE,                   &title,
+                     MODEL_COMMAND_COMMAND_LINE,            &commandLine,
+                     MODEL_COMMAND_WORKING_DIRECTORY,       &workingDirectory,
+                     MODEL_COMMAND_SHOW_BUTTON,             &showButton,
+                     MODEL_COMMAND_SHOW_MENU_ITEM,          &showMenuItem,
+                     MODEL_COMMAND_INPUT_CUSTOM_TEXT,       &inputCustomText,
+                     MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
+                     MODEL_COMMAND_RUN_REMOTE,              &runRemote,
+                     MODEL_COMMAND_PARSE_OUTPUT,            &parseOutput,
+                     MODEL_END
+                    );
+  g_assert(title != NULL);
+  g_assert(commandLine != NULL);
+  g_assert(workingDirectory != NULL);
+
+  GString  *titleString            = g_string_new(title);
+  GString  *commandLineString      = g_string_new(commandLine);
+  GString  *workingDirectoryString = g_string_new(workingDirectory);
+  if (dialogCommand(GTK_WINDOW(geany_data->main_widgets->window),
+                    _("Clone command"),
+                    titleString,
+                    commandLineString,
+                    workingDirectoryString,
+                    &showButton,
+                    &showMenuItem,
+                    &inputCustomText,
+                    &runInDockerContainer,
+                    &runRemote,
+                    &parseOutput
+                   )
+     )
+  {
+    gtk_list_store_insert_with_values(listStore,
+                                      NULL,
+                                      -1,
+                                      MODEL_COMMAND_TITLE,                   titleString->str,
+                                      MODEL_COMMAND_COMMAND_LINE,            commandLineString->str,
+                                      MODEL_COMMAND_WORKING_DIRECTORY,       workingDirectoryString->str,
+                                      MODEL_COMMAND_SHOW_BUTTON,             showButton,
+                                      MODEL_COMMAND_SHOW_MENU_ITEM,          showMenuItem,
+                                      MODEL_COMMAND_INPUT_CUSTOM_TEXT,       inputCustomText,
+                                      MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, runInDockerContainer,
+                                      MODEL_COMMAND_RUN_REMOTE,              runRemote,
+                                      MODEL_COMMAND_PARSE_OUTPUT,            parseOutput,
+                                      MODEL_END
+                                     );
+  }
+  g_string_free(workingDirectoryString, TRUE);
+  g_string_free(commandLineString, TRUE);
+  g_string_free(titleString, TRUE);
+
+  g_free(workingDirectory);
+  g_free(commandLine);
+  g_free(title);
+}
+
+/***********************************************************************\
+* Name   : editCommand
+* Purpose: edit command
+* Input  : listStore - model
+*          treeIter  - iterator in model
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void editCommand(GtkListStore *listStore,
+                       GtkTreeIter  *treeIter
+                      )
+{
+  g_assert(geany_data != NULL);
+  g_assert(geany_data->main_widgets != NULL);
+  g_assert(listStore != NULL);
+  g_assert(treeIter != NULL);
+
+  gchar    *title;
+  gchar    *commandLine;
+  gchar    *workingDirectory;
+  gboolean showButton;
+  gboolean showMenuItem;
+  gboolean inputCustomText;
+  gboolean runInDockerContainer;
+  gboolean runRemote;
+  gboolean parseOutput;
+  gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                     treeIter,
+                     MODEL_COMMAND_TITLE,                   &title,
+                     MODEL_COMMAND_COMMAND_LINE,            &commandLine,
+                     MODEL_COMMAND_WORKING_DIRECTORY,       &workingDirectory,
+                     MODEL_COMMAND_SHOW_BUTTON,             &showButton,
+                     MODEL_COMMAND_SHOW_MENU_ITEM,          &showMenuItem,
+                     MODEL_COMMAND_INPUT_CUSTOM_TEXT,       &inputCustomText,
+                     MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
+                     MODEL_COMMAND_RUN_REMOTE,              &runRemote,
+                     MODEL_COMMAND_PARSE_OUTPUT,            &parseOutput,
+                     MODEL_END
+                    );
+  g_assert(title != NULL);
+  g_assert(commandLine != NULL);
+  g_assert(workingDirectory != NULL);
+
+  GString *titleString            = g_string_new(title);
+  GString *commandLineString      = g_string_new(commandLine);
+  GString *workingDirectoryString = g_string_new(workingDirectory);
+  if (dialogCommand(GTK_WINDOW(geany_data->main_widgets->window),
+                    _("Edit command"),
+                    titleString,
+                    commandLineString,
+                    workingDirectoryString,
+                    &showButton,
+                    &showMenuItem,
+                    &inputCustomText,
+                    &runInDockerContainer,
+                    &runRemote,
+                    &parseOutput
+                   )
+     )
+  {
+    gtk_list_store_set(listStore,
+                       treeIter,
+                       MODEL_COMMAND_TITLE,                   titleString->str,
+                       MODEL_COMMAND_COMMAND_LINE,            commandLineString->str,
+                       MODEL_COMMAND_WORKING_DIRECTORY,       workingDirectoryString->str,
+                       MODEL_COMMAND_SHOW_BUTTON,             showButton,
+                       MODEL_COMMAND_SHOW_MENU_ITEM,          showMenuItem,
+                       MODEL_COMMAND_INPUT_CUSTOM_TEXT,       inputCustomText,
+                       MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, runInDockerContainer,
+                       MODEL_COMMAND_RUN_REMOTE,              runRemote,
+                       MODEL_COMMAND_PARSE_OUTPUT,            parseOutput,
+                       MODEL_END
+                      );
+  }
+  g_string_free(workingDirectoryString, TRUE);
+  g_string_free(commandLineString, TRUE);
+  g_string_free(titleString, TRUE);
+
+  g_free(workingDirectory);
+  g_free(commandLine);
+  g_free(title);
+}
+
+/***********************************************************************\
 * Name   : dialogRegexTypeCellRenderer
 * Purpose: render regex type column
 * Input  : cellLayout   - cell layout
 *          cellRenderer - cell renderer
-*          treeModel    - tree data model
+*          treeModel    - model
 *          treeIter     - tree entry iterator
 *          data         - user data (not used)
 * Output : -
@@ -1314,7 +1852,11 @@ LOCAL void  dialogRegexTypeCellRenderer(GtkCellLayout   *cellLayout,
   UNUSED_VARIABLE(data);
 
   RegexTypes type;
-  gtk_tree_model_get(treeModel, treeIter, MODEL_REGEX_TYPE, &type, -1);
+  gtk_tree_model_get(treeModel,
+                     treeIter,
+                     MODEL_REGEX_TYPE, &type,
+                     MODEL_END
+                    );
   g_assert(type >= REGEX_TYPE_MIN);
   g_assert(type <= REGEX_TYPE_MAX);
   g_object_set(cellRenderer, "text", REGEX_TYPE_STRINGS[type], NULL);
@@ -1462,28 +2004,27 @@ LOCAL void onInputRegexDialogChanged(GtkWidget *widget,
                                     )
 {
   GtkWidget *dialog = GTK_WIDGET(data);
-
   g_assert(dialog != NULL);
 
   UNUSED_VARIABLE(widget);
 
-  GtkWidget *widgetLanguage = g_object_get_data(G_OBJECT(dialog), "combo_language");
+  GtkWidget *widgetLanguage = g_object_get_data(G_OBJECT(dialog), "language");
   g_assert(widgetLanguage != NULL);
-  GtkWidget *widgetGroup = g_object_get_data(G_OBJECT(dialog), "combo_group");
+  GtkWidget *widgetGroup = g_object_get_data(G_OBJECT(dialog), "group");
   g_assert(widgetGroup != NULL);
-  GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "entry_regex");
+  GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "regex");
   g_assert(widgetRegex != NULL);
-  GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "entry_sample");
+  GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "sample");
   g_assert(widgetSample != NULL);
-  GtkWidget *filePath = g_object_get_data(G_OBJECT(dialog), "view_file_path");
+  GtkWidget *filePath = g_object_get_data(G_OBJECT(dialog), "filePath");
   g_assert(filePath != NULL);
-  GtkWidget *lineNumber = g_object_get_data(G_OBJECT(dialog), "view_line_number");
+  GtkWidget *lineNumber = g_object_get_data(G_OBJECT(dialog), "lineNumber");
   g_assert(lineNumber != NULL);
-  GtkWidget *columnNumber = g_object_get_data(G_OBJECT(dialog), "view_column_number");
+  GtkWidget *columnNumber = g_object_get_data(G_OBJECT(dialog), "columnNumber");
   g_assert(columnNumber != NULL);
-  GtkWidget *message = g_object_get_data(G_OBJECT(dialog), "view_message");
+  GtkWidget *message = g_object_get_data(G_OBJECT(dialog), "message");
   g_assert(message != NULL);
-  GtkWidget *widgetOK = g_object_get_data(G_OBJECT(dialog), "button_ok");
+  GtkWidget *widgetOK = g_object_get_data(G_OBJECT(dialog), "ok");
   g_assert(widgetOK != NULL);
 
   dialogRegexUpdateMatch(widgetLanguage,
@@ -1549,8 +2090,8 @@ LOCAL void onInputRegexDialogComboGroupInsertText(GtkEntry    *entry,
 )
 {
   GtkEditable    *editable     = GTK_EDITABLE(entry);
-  InputValidator validator     = (InputValidator)g_object_get_data(G_OBJECT(entry), "validator_function");
-  gpointer       validatorData = g_object_get_data(G_OBJECT(entry), "validator_data");
+  InputValidator validator     = (InputValidator)g_object_get_data(G_OBJECT(entry), "validatorFunction");
+  gpointer       validatorData = g_object_get_data(G_OBJECT(entry), "validatorData");
 
   if (validator(text, validatorData))
   {
@@ -1575,60 +2116,65 @@ LOCAL void onInputRegexDialogComboGroupChanged(GtkWidget *widget,
                                               )
 {
   GtkWidget *dialog = GTK_WIDGET(data);
-
   g_assert(dialog != NULL);
 
   UNUSED_VARIABLE(widget);
 
-  GtkWidget *widgetLanguage = g_object_get_data(G_OBJECT(dialog), "combo_language");
+  GtkWidget *widgetLanguage = g_object_get_data(G_OBJECT(dialog), "language");
   g_assert(widgetLanguage != NULL);
-  GtkWidget *widgetGroup = g_object_get_data(G_OBJECT(dialog), "combo_group");
+  GtkWidget *widgetGroup = g_object_get_data(G_OBJECT(dialog), "group");
   g_assert(widgetGroup != NULL);
-  GtkWidget *radioEnter = g_object_get_data(G_OBJECT(dialog), "radio_enter");
-  g_assert(radioEnter != NULL);
-  GtkWidget *radioLeave = g_object_get_data(G_OBJECT(dialog), "radio_leave");
+  GtkWidget *enter = g_object_get_data(G_OBJECT(dialog), "enter");
+  g_assert(enter != NULL);
+  GtkWidget *radioLeave = g_object_get_data(G_OBJECT(dialog), "leave");
   g_assert(radioLeave != NULL);
-  GtkWidget *radioError = g_object_get_data(G_OBJECT(dialog), "radio_error");
+  GtkWidget *radioError = g_object_get_data(G_OBJECT(dialog), "error");
   g_assert(radioError != NULL);
-  GtkWidget *radioWarning = g_object_get_data(G_OBJECT(dialog), "radio_warning");
+  GtkWidget *radioWarning = g_object_get_data(G_OBJECT(dialog), "warning");
   g_assert(radioWarning != NULL);
-  GtkWidget *radioExtension = g_object_get_data(G_OBJECT(dialog), "radio_extension");
+  GtkWidget *radioExtension = g_object_get_data(G_OBJECT(dialog), "extension");
   g_assert(radioExtension != NULL);
-  GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "entry_regex");
+  GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "regex");
   g_assert(widgetRegex != NULL);
 
-  GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "entry_sample");
+  GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "sample");
   g_assert(widgetSample != NULL);
-  GtkWidget *filePath = g_object_get_data(G_OBJECT(dialog), "view_file_path");
+  GtkWidget *filePath = g_object_get_data(G_OBJECT(dialog), "filePath");
   g_assert(filePath != NULL);
-  GtkWidget *lineNumber = g_object_get_data(G_OBJECT(dialog), "view_line_number");
+  GtkWidget *lineNumber = g_object_get_data(G_OBJECT(dialog), "lineNumber");
   g_assert(lineNumber != NULL);
-  GtkWidget *columnNumber = g_object_get_data(G_OBJECT(dialog), "view_column_number");
+  GtkWidget *columnNumber = g_object_get_data(G_OBJECT(dialog), "columnNumber");
   g_assert(columnNumber != NULL);
-  GtkWidget *message = g_object_get_data(G_OBJECT(dialog), "view_message");
+  GtkWidget *message = g_object_get_data(G_OBJECT(dialog), "message");
   g_assert(message != NULL);
-  GtkWidget *widgetOK = g_object_get_data(G_OBJECT(dialog), "button_ok");
+  GtkWidget *widgetOK = g_object_get_data(G_OBJECT(dialog), "ok");
   g_assert(widgetOK != NULL);
 
-  GtkTreeIter treeIter;
-  if (gtk_combo_box_get_active_iter(GTK_COMBO_BOX(widget), &treeIter))
+  GtkTreeIter treeIterator;
+  if (gtk_combo_box_get_active_iter(GTK_COMBO_BOX(widget), &treeIterator))
   {
-    GtkTreeModel *treeModel = gtk_combo_box_get_model(GTK_COMBO_BOX(widget));
-    g_assert(treeModel != NULL);
+    GtkListStore *listStore = GTK_LIST_STORE(gtk_combo_box_get_model(GTK_COMBO_BOX(widget)));
+    g_assert(listStore != NULL);
 
     gchar      *language;
     gchar      *group;
-    RegexTypes type;
+    RegexTypes regexType;
     gchar      *regex;
-    gtk_tree_model_get(treeModel,
-                       &treeIter,
+    gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                       &treeIterator,
                        MODEL_REGEX_LANGUAGE, &language,
                        MODEL_REGEX_GROUP,    &group,
-                       MODEL_REGEX_TYPE,     &type,
+                       MODEL_REGEX_TYPE,     &regexType,
                        MODEL_REGEX_REGEX,    &regex,
-                       MODEL_REGEX_END
+                       MODEL_END
                       );
-    gint         i = 1;
+    g_assert(language != NULL);
+    g_assert(group != NULL);
+    g_assert(regexType >= REGEX_TYPE_MIN);
+    g_assert(regexType <= REGEX_TYPE_MAX);
+    g_assert(regex != NULL);
+
+    guint        i = 1;
     const GSList *node;
     foreach_slist(node, filetypes_get_sorted_by_name())
     {
@@ -1640,11 +2186,11 @@ LOCAL void onInputRegexDialogComboGroupChanged(GtkWidget *widget,
       i++;
     }
     gtk_entry_set_text(GTK_ENTRY(gtk_bin_get_child(GTK_BIN(widgetGroup))), group);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioEnter),     type == REGEX_TYPE_ENTER    );
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioLeave),     type == REGEX_TYPE_LEAVE    );
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioError),     type == REGEX_TYPE_ERROR    );
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioWarning),   type == REGEX_TYPE_WARNING  );
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioExtension), type == REGEX_TYPE_EXTENSION);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(enter),     regexType == REGEX_TYPE_ENTER    );
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioLeave),     regexType == REGEX_TYPE_LEAVE    );
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioError),     regexType == REGEX_TYPE_ERROR    );
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioWarning),   regexType == REGEX_TYPE_WARNING  );
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radioExtension), regexType == REGEX_TYPE_EXTENSION);
     gtk_entry_set_text(GTK_ENTRY(widgetRegex), regex);
     g_free(regex);
     g_free(group);
@@ -1694,7 +2240,7 @@ LOCAL gint updateGroupStore(const gchar *language, const gchar *group, GtkWidget
                                         MODEL_REGEX_GROUP,    REGEX_BUILTIN[i].group,
                                         MODEL_REGEX_TYPE,     REGEX_BUILTIN[i].type,
                                         MODEL_REGEX_REGEX,    REGEX_BUILTIN[i].regex,
-                                        MODEL_REGEX_END
+                                        MODEL_END
                                        );
       if ((index < 0) && stringEquals(REGEX_BUILTIN[i].group, group)) index = (gint)n;
       n++;
@@ -1727,39 +2273,38 @@ LOCAL void onInputRegexDialogComboLanguageChanged(GtkWidget *widget,
                                                  )
 {
   GtkWidget *dialog = GTK_WIDGET(data);
-
   g_assert(dialog != NULL);
 
   UNUSED_VARIABLE(widget);
 
-  GtkWidget *widgetLanguage = g_object_get_data(G_OBJECT(dialog), "combo_language");
+  GtkWidget *widgetLanguage = g_object_get_data(G_OBJECT(dialog), "language");
   g_assert(widgetLanguage != NULL);
-  GtkWidget *widgetGroup = g_object_get_data(G_OBJECT(dialog), "combo_group");
+  GtkWidget *widgetGroup = g_object_get_data(G_OBJECT(dialog), "group");
   g_assert(widgetGroup != NULL);
-  GtkWidget *radioEnter = g_object_get_data(G_OBJECT(dialog), "radio_enter");
-  g_assert(radioEnter != NULL);
-  GtkWidget *radioLeave = g_object_get_data(G_OBJECT(dialog), "radio_leave");
+  GtkWidget *enter = g_object_get_data(G_OBJECT(dialog), "enter");
+  g_assert(enter != NULL);
+  GtkWidget *radioLeave = g_object_get_data(G_OBJECT(dialog), "leave");
   g_assert(radioLeave != NULL);
-  GtkWidget *radioError = g_object_get_data(G_OBJECT(dialog), "radio_error");
+  GtkWidget *radioError = g_object_get_data(G_OBJECT(dialog), "error");
   g_assert(radioError != NULL);
-  GtkWidget *radioWarning = g_object_get_data(G_OBJECT(dialog), "radio_warning");
+  GtkWidget *radioWarning = g_object_get_data(G_OBJECT(dialog), "warning");
   g_assert(radioWarning != NULL);
-  GtkWidget *radioExtension = g_object_get_data(G_OBJECT(dialog), "radio_extension");
+  GtkWidget *radioExtension = g_object_get_data(G_OBJECT(dialog), "extension");
   g_assert(radioExtension != NULL);
-  GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "entry_regex");
+  GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "regex");
   g_assert(widgetRegex != NULL);
 
-  GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "entry_sample");
+  GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "sample");
   g_assert(widgetSample != NULL);
-  GtkWidget *filePath = g_object_get_data(G_OBJECT(dialog), "view_file_path");
+  GtkWidget *filePath = g_object_get_data(G_OBJECT(dialog), "filePath");
   g_assert(filePath != NULL);
-  GtkWidget *lineNumber = g_object_get_data(G_OBJECT(dialog), "view_line_number");
+  GtkWidget *lineNumber = g_object_get_data(G_OBJECT(dialog), "lineNumber");
   g_assert(lineNumber != NULL);
-  GtkWidget *columnNumber = g_object_get_data(G_OBJECT(dialog), "view_column_number");
+  GtkWidget *columnNumber = g_object_get_data(G_OBJECT(dialog), "columnNumber");
   g_assert(columnNumber != NULL);
-  GtkWidget *message = g_object_get_data(G_OBJECT(dialog), "view_message");
+  GtkWidget *message = g_object_get_data(G_OBJECT(dialog), "message");
   g_assert(message != NULL);
-  GtkWidget *widgetOK = g_object_get_data(G_OBJECT(dialog), "button_ok");
+  GtkWidget *widgetOK = g_object_get_data(G_OBJECT(dialog), "ok");
   g_assert(widgetOK != NULL);
 
   // update group model
@@ -1808,8 +2353,9 @@ LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
                            const gchar *sample
                           )
 {
-  GtkWidget *widgetLanguage, *widgetGroup;
-  GtkWidget *buttonRegExTypeEnter, *buttonRegExTypeLeave, *buttonRegExTypeError, *buttonRegExTypeWarning, *buttonRegExTypeExtension;
+  GtkWidget *widgetLanguage;
+  GtkWidget *widgetGroup;
+  GtkWidget *widgetRegExTypeEnter, *widgetRegExTypeLeave, *widgetRegExTypeError, *widgetRegExTypeWarning, *widgetRegExTypeExtension;
   GtkWidget *widgetRegex, *widgetSample;
   GtkWidget *widgetFilePath, *widgetLineNumber, *widgetColumnNumber, *widgetMessage;
   GtkWidget *widgetOK;
@@ -1832,7 +2378,7 @@ LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
                                                  );
 
   widgetOK = gtk_dialog_add_button(GTK_DIALOG(dialog), _("_OK"), GTK_RESPONSE_ACCEPT);
-  g_object_set_data(G_OBJECT(dialog), "button_ok", widgetOK);
+  g_object_set_data(G_OBJECT(dialog), "ok", widgetOK);
 
   GtkBox *vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
   gtk_widget_set_margin_top(GTK_WIDGET(vbox), 6);
@@ -1846,11 +2392,11 @@ LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
     gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
     g_object_set(grid, "margin", 6, NULL);
     {
-      addGrid(grid, 0, 0, 1, newLabel(G_OBJECT(dialog), NULL, "Language", NULL));
+      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Language", NULL));
       hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL,12));
       {
         // language combo oox
-        widgetLanguage = addBox(hbox, TRUE, newCombo(G_OBJECT(dialog), "combo_language", "Language"));
+        addBox(hbox, TRUE, newCombo(&widgetLanguage, G_OBJECT(dialog), "language", "Language"));
         gint         i = 1;
         const GSList *node;
         gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(widgetLanguage), "");
@@ -1873,7 +2419,7 @@ LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
                              );
 
         // group combo box
-        widgetGroup = addBox(hbox, TRUE, newComboEntry(G_OBJECT(dialog), "combo_group", "Group"));
+        addBox(hbox, TRUE, newComboEntry(&widgetGroup, G_OBJECT(dialog), "group", "Group"));
         gtk_combo_box_set_model(GTK_COMBO_BOX(widgetGroup), GTK_TREE_MODEL(pluginData.builtInRegExStore));
         gtk_combo_box_set_entry_text_column(GTK_COMBO_BOX(widgetGroup), MODEL_REGEX_LANGUAGE);
 #if 0
@@ -1933,8 +2479,8 @@ NULL
 #endif
 
         GtkWidget *entryGroup = gtk_bin_get_child(GTK_BIN(widgetGroup));
-        g_object_set_data(G_OBJECT(entryGroup), "validator_function", validateGroup);
-        g_object_set_data(G_OBJECT(entryGroup), "validator_data", NULL);
+        g_object_set_data(G_OBJECT(entryGroup), "validatorFunction", validateGroup);
+        g_object_set_data(G_OBJECT(entryGroup), "validatorData", NULL);
         plugin_signal_connect(geany_plugin,
                               G_OBJECT(entryGroup),
                               "insert_text",
@@ -1952,46 +2498,47 @@ NULL
       }
       addGrid(grid, 0, 1, 2, GTK_WIDGET(hbox));
 
-      addGrid(grid, 1, 0, 1, newLabel(G_OBJECT(dialog), NULL, "Type", NULL));
+      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Type", NULL));
       hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL,12));
       {
-        buttonRegExTypeEnter     = addBox(hbox, FALSE, newRadioButton(G_OBJECT(dialog), NULL,                   "radio_enter",     REGEX_TYPE_STRINGS[REGEX_TYPE_ENTER    ], NULL));
-        if ((*regexType) == REGEX_TYPE_ENTER) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(buttonRegExTypeEnter), TRUE);
-        buttonRegExTypeLeave     = addBox(hbox, FALSE, newRadioButton(G_OBJECT(dialog), buttonRegExTypeEnter,   "radio_leave",     REGEX_TYPE_STRINGS[REGEX_TYPE_LEAVE    ], NULL));
-        if ((*regexType) == REGEX_TYPE_LEAVE) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(buttonRegExTypeLeave), TRUE);
-        buttonRegExTypeError     = addBox(hbox, FALSE, newRadioButton(G_OBJECT(dialog), buttonRegExTypeLeave,   "radio_error",     REGEX_TYPE_STRINGS[REGEX_TYPE_ERROR    ], NULL));
-        if ((*regexType) == REGEX_TYPE_ERROR) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(buttonRegExTypeError), TRUE);
-        buttonRegExTypeWarning   = addBox(hbox, FALSE, newRadioButton(G_OBJECT(dialog), buttonRegExTypeError,   "radio_warning",   REGEX_TYPE_STRINGS[REGEX_TYPE_WARNING  ], NULL));
-        if ((*regexType) == REGEX_TYPE_WARNING) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(buttonRegExTypeWarning), TRUE);
-        buttonRegExTypeExtension = addBox(hbox, FALSE, newRadioButton(G_OBJECT(dialog), buttonRegExTypeWarning, "radio_extension", REGEX_TYPE_STRINGS[REGEX_TYPE_EXTENSION], NULL));
-        if ((*regexType) == REGEX_TYPE_EXTENSION) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(buttonRegExTypeExtension), TRUE);
+        addBox(hbox, FALSE, newRadioButton(&widgetRegExTypeEnter, G_OBJECT(dialog), NULL,                   "enter",     REGEX_TYPE_STRINGS[REGEX_TYPE_ENTER    ], NULL));
+        if ((*regexType) == REGEX_TYPE_ENTER) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRegExTypeEnter), TRUE);
+        addBox(hbox, FALSE, newRadioButton(&widgetRegExTypeLeave, G_OBJECT(dialog), widgetRegExTypeEnter,   "leave",     REGEX_TYPE_STRINGS[REGEX_TYPE_LEAVE    ], NULL));
+        if ((*regexType) == REGEX_TYPE_LEAVE) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRegExTypeLeave), TRUE);
+        addBox(hbox, FALSE, newRadioButton(&widgetRegExTypeError, G_OBJECT(dialog), widgetRegExTypeLeave,   "error",     REGEX_TYPE_STRINGS[REGEX_TYPE_ERROR    ], NULL));
+        if ((*regexType) == REGEX_TYPE_ERROR) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRegExTypeError), TRUE);
+        addBox(hbox, FALSE, newRadioButton(&widgetRegExTypeWarning, G_OBJECT(dialog), widgetRegExTypeError,   "warning",   REGEX_TYPE_STRINGS[REGEX_TYPE_WARNING  ], NULL));
+        if ((*regexType) == REGEX_TYPE_WARNING) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRegExTypeWarning), TRUE);
+        addBox(hbox, FALSE, newRadioButton(&widgetRegExTypeExtension, G_OBJECT(dialog), widgetRegExTypeWarning, "extension", REGEX_TYPE_STRINGS[REGEX_TYPE_EXTENSION], NULL));
+        if ((*regexType) == REGEX_TYPE_EXTENSION) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRegExTypeExtension), TRUE);
       }
       addGrid(grid, 1, 1, 2, GTK_WIDGET(hbox));
 
-      addGrid(grid, 2, 0, 1, newLabel(G_OBJECT(dialog), NULL, text, NULL));
-      widgetRegex = addGrid(grid, 2, 1, 2, newEntry(G_OBJECT(dialog),
-                                                    "entry_regex",
-                                                    "Regular expression. Group names:\n"
-                                                    "  <filePath>\n"
-                                                    "  <lineNumber>\n"
-                                                    "  <columnNumber>\n"
-                                                    "  <message>\n"
-                                                   )
-                           );
+      addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, text, NULL));
+      addGrid(grid, 2, 1, 2, newEntry(&widgetRegex,
+                                      G_OBJECT(dialog),
+                                      "regex",
+                                      "Regular expression. Group names:\n"
+                                      "  <filePath>\n"
+                                      "  <lineNumber>\n"
+                                      "  <columnNumber>\n"
+                                      "  <message>\n"
+                                     )
+             );
       gtk_entry_set_text(GTK_ENTRY(widgetRegex), regexString->str);
 
-      addGrid(grid, 3, 0, 1, newLabel(G_OBJECT(dialog), NULL, _("Sample"), NULL));
-      widgetSample = addGrid(grid, 3, 1, 2, newEntry(G_OBJECT(dialog), "entry_sample", "Regular expression match example"));
+      addGrid(grid, 3, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Sample"), NULL));
+      addGrid(grid, 3, 1, 2, newEntry(&widgetSample, G_OBJECT(dialog), "sample", "Regular expression match example"));
       gtk_entry_set_text(GTK_ENTRY(widgetSample), sample);
 
-      addGrid(grid, 4, 1, 1, newLabel(G_OBJECT(dialog), NULL, "File path", NULL));
-      widgetFilePath = addGrid(grid, 4, 2, 1, newView (G_OBJECT(dialog), "view_file_path", NULL));
-      addGrid(grid, 5, 1, 1, newLabel(G_OBJECT(dialog), NULL, "Line number", NULL));
-      widgetLineNumber = addGrid(grid, 5, 2, 1, newView (G_OBJECT(dialog), "view_line_number", NULL));
-      addGrid(grid, 6, 1, 1, newLabel(G_OBJECT(dialog), NULL, "Column number", NULL));
-      widgetColumnNumber = addGrid(grid, 6, 2, 1, newView (G_OBJECT(dialog), "view_column_number", NULL));
-      addGrid(grid, 7, 1, 1, newLabel(G_OBJECT(dialog), NULL, "Message", NULL));
-      widgetMessage = addGrid(grid, 7, 2, 1, newView (G_OBJECT(dialog), "view_message", NULL));
+      addGrid(grid, 4, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "File path", NULL));
+      addGrid(grid, 4, 2, 1, newView (&widgetFilePath, G_OBJECT(dialog), "filePath", NULL));
+      addGrid(grid, 5, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Line number", NULL));
+      addGrid(grid, 5, 2, 1, newView (&widgetLineNumber, G_OBJECT(dialog), "lineNumber", NULL));
+      addGrid(grid, 6, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Column number", NULL));
+      addGrid(grid, 6, 2, 1, newView (&widgetColumnNumber, G_OBJECT(dialog), "columnNumber", NULL));
+      addGrid(grid, 7, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Message", NULL));
+      addGrid(grid, 7, 2, 1, newView (&widgetMessage, G_OBJECT(dialog), "message", NULL));
       plugin_signal_connect(geany_plugin,
                             G_OBJECT(widgetRegex),
                             "changed",
@@ -2026,17 +2573,16 @@ NULL
 
   // run dialog
   result = gtk_dialog_run(GTK_DIALOG(dialog));
-
   if (result == GTK_RESPONSE_ACCEPT)
   {
     // get result
     g_string_assign(languageString, gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(widgetLanguage)));
     g_string_assign(groupString, gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(widgetGroup)));
-    if      (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(buttonRegExTypeEnter    ))) (*regexType) = REGEX_TYPE_ENTER;
-    else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(buttonRegExTypeLeave    ))) (*regexType) = REGEX_TYPE_LEAVE;
-    else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(buttonRegExTypeError    ))) (*regexType) = REGEX_TYPE_ERROR;
-    else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(buttonRegExTypeWarning  ))) (*regexType) = REGEX_TYPE_WARNING;
-    else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(buttonRegExTypeExtension))) (*regexType) = REGEX_TYPE_EXTENSION;
+    if      (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetRegExTypeEnter    ))) (*regexType) = REGEX_TYPE_ENTER;
+    else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetRegExTypeLeave    ))) (*regexType) = REGEX_TYPE_LEAVE;
+    else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetRegExTypeError    ))) (*regexType) = REGEX_TYPE_ERROR;
+    else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetRegExTypeWarning  ))) (*regexType) = REGEX_TYPE_WARNING;
+    else if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widgetRegExTypeExtension))) (*regexType) = REGEX_TYPE_EXTENSION;
     g_string_assign(regexString, gtk_entry_get_text(GTK_ENTRY(widgetRegex)));
   }
 
@@ -2047,7 +2593,7 @@ NULL
 }
 
 /***********************************************************************\
-* Name   : addRegEx
+* Name   : addRegex
 * Purpose: add regular expression
 * Input  : sample - sample for regex-match or ""
 * Output : -
@@ -2055,7 +2601,7 @@ NULL
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void addRegEx(const gchar *sample)
+LOCAL void addRegex(const gchar *sample)
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
@@ -2078,7 +2624,7 @@ LOCAL void addRegEx(const gchar *sample)
     g_assert(regexType >= REGEX_TYPE_MIN);
     g_assert(regexType <= REGEX_TYPE_MAX);
 
-    if (!existsRegEx(GTK_TREE_MODEL(pluginData.configuration.regexStore),
+    if (!existsRegex(pluginData.configuration.regexStore,
                      regexLanguageString->str,
                      regexGroupString->str,
                      regexType,
@@ -2093,7 +2639,7 @@ LOCAL void addRegEx(const gchar *sample)
                                         MODEL_REGEX_GROUP,    regexGroupString->str,
                                         MODEL_REGEX_TYPE,     regexType,
                                         MODEL_REGEX_REGEX,    regexString->str,
-                                        MODEL_REGEX_END
+                                        MODEL_END
                                        );
     }
   }
@@ -2103,9 +2649,9 @@ LOCAL void addRegEx(const gchar *sample)
 }
 
 /***********************************************************************\
-* Name   : cloneRegEx
+* Name   : cloneRegex
 * Purpose: clone regular expression
-* Input  : treeModel - model
+* Input  : listStore - model
 *          treeIter  - iterator in model
 *          sample    - sample for regex-match or ""
 * Output : -
@@ -2113,27 +2659,27 @@ LOCAL void addRegEx(const gchar *sample)
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void cloneRegEx(GtkTreeModel *treeModel,
+LOCAL void cloneRegex(GtkListStore *listStore,
                       GtkTreeIter  *treeIter,
                       const gchar  *sample
                      )
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
-  g_assert(treeModel != NULL);
+  g_assert(listStore != NULL);
   g_assert(treeIter != NULL);
 
   gchar       *language;
   gchar       *group;
   RegexTypes  regexType;
   gchar       *regex;
-  gtk_tree_model_get(treeModel,
+  gtk_tree_model_get(GTK_TREE_MODEL(listStore),
                      treeIter,
                      MODEL_REGEX_LANGUAGE, &language,
                      MODEL_REGEX_GROUP,    &group,
                      MODEL_REGEX_TYPE,     &regexType,
                      MODEL_REGEX_REGEX,    &regex,
-                     MODEL_REGEX_END
+                     MODEL_END
                     );
   g_assert(language != NULL);
   g_assert(group != NULL);
@@ -2158,7 +2704,7 @@ LOCAL void cloneRegEx(GtkTreeModel *treeModel,
     g_assert(regexType >= REGEX_TYPE_MIN);
     g_assert(regexType <= REGEX_TYPE_MAX);
 
-    if (!existsRegEx(GTK_TREE_MODEL(pluginData.configuration.regexStore),
+    if (!existsRegex(pluginData.configuration.regexStore,
                      languageString->str,
                      groupString->str,
                      regexType,
@@ -2173,7 +2719,7 @@ LOCAL void cloneRegEx(GtkTreeModel *treeModel,
                                         MODEL_REGEX_GROUP,    groupString->str,
                                         MODEL_REGEX_TYPE,     regexType,
                                         MODEL_REGEX_REGEX,    regexString->str,
-                                        MODEL_REGEX_END
+                                        MODEL_END
                                        );
     }
   }
@@ -2187,9 +2733,9 @@ LOCAL void cloneRegEx(GtkTreeModel *treeModel,
 }
 
 /***********************************************************************\
-* Name   : editRegEx
+* Name   : editRegex
 * Purpose: edit regular expression
-* Input  : treeModel - model
+* Input  : listStore - model
 *          treeIter  - iterator in model
 *          sample    - sample for regex-match or ""
 * Output : -
@@ -2197,27 +2743,27 @@ LOCAL void cloneRegEx(GtkTreeModel *treeModel,
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void editRegEx(GtkTreeModel *treeModel,
+LOCAL void editRegex(GtkListStore *listStore,
                      GtkTreeIter  *treeIter,
                      const gchar  *sample
                     )
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
-  g_assert(treeModel != NULL);
+  g_assert(listStore != NULL);
   g_assert(treeIter != NULL);
 
   gchar       *language;
   gchar       *group;
   RegexTypes  regexType;
   gchar       *regex;
-  gtk_tree_model_get(treeModel,
+  gtk_tree_model_get(GTK_TREE_MODEL(listStore),
                      treeIter,
                      MODEL_REGEX_LANGUAGE, &language,
                      MODEL_REGEX_GROUP,    &group,
                      MODEL_REGEX_TYPE,     &regexType,
                      MODEL_REGEX_REGEX,    &regex,
-                     MODEL_REGEX_END
+                     MODEL_END
                     );
   g_assert(language != NULL);
   g_assert(group != NULL);
@@ -2242,13 +2788,13 @@ LOCAL void editRegEx(GtkTreeModel *treeModel,
     g_assert(regexType >= REGEX_TYPE_MIN);
     g_assert(regexType <= REGEX_TYPE_MAX);
 
-    gtk_list_store_set(pluginData.configuration.regexStore,
+    gtk_list_store_set(listStore,
                        treeIter,
                        MODEL_REGEX_LANGUAGE, languageString->str,
                        MODEL_REGEX_GROUP,    groupString->str,
                        MODEL_REGEX_TYPE,     regexType,
                        MODEL_REGEX_REGEX,    regexString->str,
-                       MODEL_REGEX_END
+                       MODEL_END
                       );
   }
   g_string_free(regexString, TRUE);
@@ -2261,35 +2807,6 @@ LOCAL void editRegEx(GtkTreeModel *treeModel,
 }
 
 // ---------------------------------------------------------------------
-
-/***********************************************************************\
-* Name   : getAbsolutePath
-* Purpose: get absolute path from directory and file path
-* Input  : directory - directory (can be NULL)
-*          filePath  - file path
-* Output : -
-* Return : absolute file path
-* Notes  : -
-\***********************************************************************/
-
-LOCAL gchar *getAbsolutePath(const gchar *directory,
-                             const gchar *filePath
-                            )
-{
-  g_assert(filePath != NULL);
-
-  gchar *absoluteFilePath;
-  if (g_path_is_absolute(filePath) || isStringEmpty(directory))
-  {
-    absoluteFilePath = g_strdup(filePath);
-  }
-  else
-  {
-    absoluteFilePath = g_strconcat(directory, G_DIR_SEPARATOR_S, filePath, NULL);
-  }
-
-  return absoluteFilePath;
-}
 
 /***********************************************************************\
 * Name   : scrollToMessage
@@ -2345,7 +2862,7 @@ LOCAL void showSource(const gchar *directory,
 
   // find/open document
   GeanyDocument *document = document_find_by_filename(filePath);
-  if ((document == NULL) && !isStringEmpty(absoluteFilePathLocale))
+  if ((document == NULL) && !stringIsEmpty(absoluteFilePathLocale))
   {
     document = document_open_file(absoluteFilePathLocale, FALSE, NULL, NULL);
   }
@@ -2399,13 +2916,13 @@ LOCAL void showPrevError()
   gchar *directory, *filePath;
   gint  lineNumber, columnNumber;
   gtk_tree_model_get(treeModel,
-                     &pluginData.build.errorsTreeIter,
+                     &pluginData.build.errorsTreeIterator,
                      MODEL_ERROR_WARNING_TREE_PATH,     &messageTreePath,
                      MODEL_ERROR_WARNING_DIRECTORY,     &directory,
                      MODEL_ERROR_WARNING_FILE_PATH,     &filePath,
                      MODEL_ERROR_WARNING_LINE_NUMBER,   &lineNumber,
                      MODEL_ERROR_WARNING_COLUMN_NUMBER, &columnNumber,
-                     MODEL_ERROR_WARNING_END
+                     MODEL_END
                     );
   if (messageTreePath != NULL)
   {
@@ -2418,13 +2935,13 @@ LOCAL void showPrevError()
   g_free(messageTreePath);
 
   // previous error
-  GtkTreeIter treeIter = pluginData.build.errorsTreeIter;
+  GtkTreeIter treeIterator = pluginData.build.errorsTreeIterator;
   if (!gtk_tree_model_iter_previous(treeModel,
-                                    &pluginData.build.errorsTreeIter
+                                    &pluginData.build.errorsTreeIterator
                                    )
      )
   {
-    pluginData.build.errorsTreeIter = treeIter;
+    pluginData.build.errorsTreeIterator = treeIterator;
   }
 }
 
@@ -2449,13 +2966,13 @@ LOCAL void showNextError()
   gchar *directory, *filePath;
   gint  lineNumber, columnNumber;
   gtk_tree_model_get(treeModel,
-                     &pluginData.build.errorsTreeIter,
+                     &pluginData.build.errorsTreeIterator,
                      MODEL_ERROR_WARNING_TREE_PATH,     &messageTreePath,
                      MODEL_ERROR_WARNING_DIRECTORY,     &directory,
                      MODEL_ERROR_WARNING_FILE_PATH,     &filePath,
                      MODEL_ERROR_WARNING_LINE_NUMBER,   &lineNumber,
                      MODEL_ERROR_WARNING_COLUMN_NUMBER, &columnNumber,
-                     MODEL_ERROR_WARNING_END
+                     MODEL_END
                     );
   if (messageTreePath != NULL)
   {
@@ -2468,13 +2985,13 @@ LOCAL void showNextError()
   g_free(messageTreePath);
 
   // next error
-  GtkTreeIter treeIter = pluginData.build.errorsTreeIter;
+  GtkTreeIter treeIterator = pluginData.build.errorsTreeIterator;
   if (!gtk_tree_model_iter_next(treeModel,
-                                &pluginData.build.errorsTreeIter
+                                &pluginData.build.errorsTreeIterator
                                )
      )
   {
-    pluginData.build.errorsTreeIter = treeIter;
+    pluginData.build.errorsTreeIterator = treeIterator;
   }
 }
 
@@ -2499,13 +3016,13 @@ LOCAL void showPrevWarning()
   gchar *directory, *filePath;
   gint  lineNumber, columnNumber;
   gtk_tree_model_get(treeModel,
-                     &pluginData.build.warningsTreeIter,
+                     &pluginData.build.warningsTreeIterator,
                      MODEL_ERROR_WARNING_TREE_PATH,     &messageTreePath,
                      MODEL_ERROR_WARNING_DIRECTORY,     &directory,
                      MODEL_ERROR_WARNING_FILE_PATH,     &filePath,
                      MODEL_ERROR_WARNING_LINE_NUMBER,   &lineNumber,
                      MODEL_ERROR_WARNING_COLUMN_NUMBER, &columnNumber,
-                     MODEL_ERROR_WARNING_END
+                     MODEL_END
                     );
   if (messageTreePath != NULL)
   {
@@ -2518,13 +3035,13 @@ LOCAL void showPrevWarning()
   g_free(messageTreePath);
 
   // previous warning
-  GtkTreeIter treeIter = pluginData.build.warningsTreeIter;
+  GtkTreeIter treeIterator = pluginData.build.warningsTreeIterator;
   if (!gtk_tree_model_iter_previous(treeModel,
-                                    &pluginData.build.warningsTreeIter
+                                    &pluginData.build.warningsTreeIterator
                                    )
      )
   {
-    pluginData.build.warningsTreeIter = treeIter;
+    pluginData.build.warningsTreeIterator = treeIterator;
   }
 }
 
@@ -2549,13 +3066,13 @@ LOCAL void showNextWarning()
   gchar *directory, *filePath;
   gint  lineNumber, columnNumber;
   gtk_tree_model_get(treeModel,
-                     &pluginData.build.warningsTreeIter,
+                     &pluginData.build.warningsTreeIterator,
                      MODEL_ERROR_WARNING_TREE_PATH,     &messageTreePath,
                      MODEL_ERROR_WARNING_DIRECTORY,     &directory,
                      MODEL_ERROR_WARNING_FILE_PATH,     &filePath,
                      MODEL_ERROR_WARNING_LINE_NUMBER,   &lineNumber,
                      MODEL_ERROR_WARNING_COLUMN_NUMBER, &columnNumber,
-                     MODEL_ERROR_WARNING_END
+                     MODEL_END
                     );
   if (messageTreePath != NULL)
   {
@@ -2568,13 +3085,13 @@ LOCAL void showNextWarning()
   g_free(messageTreePath);
 
   // next warning
-  GtkTreeIter treeIter = pluginData.build.warningsTreeIter;
+  GtkTreeIter treeIterator = pluginData.build.warningsTreeIterator;
   if (!gtk_tree_model_iter_next(treeModel,
-                                &pluginData.build.warningsTreeIter
+                                &pluginData.build.warningsTreeIterator
                                )
      )
   {
-    pluginData.build.warningsTreeIter = treeIter;
+    pluginData.build.warningsTreeIterator = treeIterator;
   }
 }
 
@@ -2647,8 +3164,6 @@ LOCAL gboolean isMatchingRegex(const gchar  *regexString,
                         ? g_match_info_fetch(matchInfo, filePathMatchNumber)
                         : g_strdup("")
                      );
-fprintf(stderr,"%s:%d: directoryPath=%s\n",__FILE__,__LINE__,directoryPath->str);
-fprintf(stderr,"%s:%d: filePath=%s\n",__FILE__,__LINE__,filePath->str);
       (*lineNumber)   = (g_match_info_get_match_count(matchInfo) > lineNumberMatchNumber)
                           ? (guint)g_ascii_strtoull(g_match_info_fetch(matchInfo, lineNumberMatchNumber), NULL, 10)
                           : 0;
@@ -2671,7 +3186,7 @@ fprintf(stderr,"%s:%d: filePath=%s\n",__FILE__,__LINE__,filePath->str);
 /***********************************************************************\
 * Name   : isMatchingRegexs
 * Purpose: check if regular expression from model match to line
-* Input  : treeModel       - model with regular expressions
+* Input  : listStore       - model with regular expressions
 *          regexTypeFilter - regular expression types filter
 *          line            - line
 * Output : matchTreePathString - best matching tree path string
@@ -2683,7 +3198,7 @@ fprintf(stderr,"%s:%d: filePath=%s\n",__FILE__,__LINE__,filePath->str);
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
+LOCAL gboolean isMatchingRegexs(GtkListStore *listStore,
                                 const gchar  *line,
                                 GString      *matchTreePathString,
                                 RegexTypes   *regexType,
@@ -2693,7 +3208,7 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
                                 GString      *messageString
                                )
 {
-  g_assert(treeModel != NULL);
+  g_assert(listStore != NULL);
   g_assert(line != NULL);
   g_assert(matchTreePathString != NULL);
   g_assert(regexType != NULL);
@@ -2710,8 +3225,8 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
   (*columnNumber) = 0;
   g_string_assign(messageString, "");
 
-  GtkTreeIter treeIter;
-  if (gtk_tree_model_get_iter_first(treeModel, &treeIter))
+  GtkTreeIter treeIterator;
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(listStore), &treeIterator))
   {
     GString *matchDirectoryPathString = g_string_new(NULL);
     GString *matchFilePathString      = g_string_new(NULL);
@@ -2723,19 +3238,19 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
       gchar      *checkRegExLanguage;
       RegexTypes checkRegExType;
       gchar      *checkRegEx;
-      gtk_tree_model_get(treeModel,
-                         &treeIter,
+      gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                         &treeIterator,
                          MODEL_REGEX_LANGUAGE, &checkRegExLanguage,
                          MODEL_REGEX_TYPE,     &checkRegExType,
                          MODEL_REGEX_REGEX,    &checkRegEx,
-                         MODEL_REGEX_END
+                         MODEL_END
                         );
+      g_assert(checkRegExLanguage != NULL);
       g_assert(checkRegExType >= REGEX_TYPE_MIN);
       g_assert(checkRegExType <= REGEX_TYPE_MAX);
       g_assert(checkRegEx != NULL);
 
-//fprintf(stderr,"%s:%d: checkRegExLanguage=%s\n",__FILE__,__LINE__,checkRegExLanguage);
-//fprintf(stderr,"%s:%d: %d %d\n",__FILE__,__LINE__,document->file_type->id,fileType->id);
+//fprintf(stderr,"%s:%d: checkRegExLanguage=%s, checkRegEx=%s\n",__FILE__,__LINE__,checkRegExLanguage,checkRegEx);
 
 #if 0
       // get current document (if possible)
@@ -2775,7 +3290,7 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
 
             if (matchCount > bestMatchCount)
             {
-              gchar *matchTreePath = gtk_tree_model_get_string_from_iter(treeModel, &treeIter);
+              gchar *matchTreePath = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(listStore), &treeIter);
               g_string_assign(matchTreePathString, matchTreePath);
               g_free(matchTreePath);
 
@@ -2856,7 +3371,7 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
 //fprintf(stderr,"%s:%d: checkregex=%s line=%s -> matchCount=%d\n",__FILE__,__LINE__,checkRegEx,line,matchCount);
           if (matchCount > bestMatchCount)
           {
-            gchar *matchTreePath = gtk_tree_model_get_string_from_iter(treeModel, &treeIter);
+            gchar *matchTreePath = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(listStore), &treeIterator);
             g_string_assign(matchTreePathString, matchTreePath);
             g_free(matchTreePath);
 
@@ -2874,7 +3389,7 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
       g_free(checkRegEx);
       g_free(checkRegExLanguage);
     }
-    while (gtk_tree_model_iter_next(treeModel, &treeIter));
+    while (gtk_tree_model_iter_next(GTK_TREE_MODEL(listStore), &treeIterator));
     g_string_free(matchMessageString,TRUE);
     g_string_free(matchFilePathString,TRUE);
     g_string_free(matchDirectoryPathString,TRUE);
@@ -2885,368 +3400,411 @@ LOCAL gboolean isMatchingRegexs(GtkTreeModel *treeModel,
 }
 
 /***********************************************************************\
-* Name   : onExecuteOutput
-* Purpose: handle stdout/stderr
-* Input  : line        - line
-*          ioCondition - i/o condition set
-*          data        - user data (not used)
+* Name   : getWorkingDirectory
+* Purpose: get working directory
+* Input  : workingDirectoryTemplate - working directory template or NULL
+* Output : -
+* Return : working directory
+* Notes  : -
+\***********************************************************************/
+
+LOCAL const gchar *getWorkingDirectory(const gchar *workingDirectoryTemplate)
+{
+  // get project
+  GeanyProject *project = geany_data->app->project;
+
+  // get current document (if possible)
+  GeanyDocument *document = document_get_current();
+
+  // get working directory
+  gchar *workingDirectory;
+  if (!stringIsEmpty(workingDirectoryTemplate))
+  {
+    workingDirectory = expandMacros(project,
+                                    document,
+                                    workingDirectoryTemplate,
+                                    NULL  // customText
+                                   );
+  }
+  else
+  {
+    // if no working directory is given, use file/project or current directory
+    if      (project != NULL)
+    {
+      workingDirectory = g_strdup(project->base_path);
+    }
+    else if (document != NULL)
+    {
+      workingDirectory = g_path_get_dirname(document->file_name);
+    }
+    else
+    {
+      workingDirectory = g_get_current_dir();
+    }
+  }
+  g_assert(workingDirectory != NULL);
+
+  return workingDirectory;
+}
+
+/***********************************************************************\
+* Name   : onExecuteCommandParse
+* Purpose: callback to parse command output (stdout/stderr)
+* Input  : workingDirectory - working directory
+*          line             - line (without trailing \n)
+*          userData         - user data: TRUE to parse output
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onExecuteOutput(GString *line, GIOCondition ioCondition, gpointer data)
+LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
+                                 const gchar *line,
+                                 void        *userData
+                                )
 {
-  GString *string;
-
   g_assert(line != NULL);
+  g_assert(userData != NULL);
 
-  gboolean parseOutput = (gboolean)GPOINTER_TO_UINT(data);
+  gboolean parseOutput = (gboolean)GPOINTER_TO_UINT(userData);
 
-  if ((ioCondition & (G_IO_IN | G_IO_PRI)) != 0)
+  // prepare empty line in message tab
+  gtk_list_store_insert(pluginData.build.messagesStore,
+                        &pluginData.build.messageTreeIterator,
+                        MODEL_END
+                       );
+  gchar *messageTreePath = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
+                                                               &pluginData.build.messageTreeIterator
+                                                              );
+
+  if (parseOutput)
   {
-    // init variables
-    string = g_string_new(NULL);
-
-    // remove LF/CR
-    g_strchomp(line->str);
-
-    // insert into message tab
-    gtk_list_store_insert(pluginData.build.messagesStore,
-                          &pluginData.build.messageTreeIter,
-                          -1
-                         );
-    gchar *messageTreePath = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
-                                                                 &pluginData.build.messageTreeIter
-                                                                );
-
-    if (parseOutput)
+    // find match
+    gchar       *absoluteDirectory   = NULL;
+    RegexTypes  regexType;
+    GString     *matchTreePathString = g_string_new(NULL);
+    GString     *filePathString      = g_string_new(NULL);
+    guint       lineNumber, columnNumber;
+    GString     *messageString       = g_string_new(NULL);
+    const gchar *messageColor        = COLOR_BUILD_MESSAGES;
+    if      (isMatchingRegexs(pluginData.configuration.regexStore,
+                              line,
+                              matchTreePathString,
+                              &regexType,
+                              filePathString,
+                              &lineNumber,
+                              &columnNumber,
+                              messageString
+                             )
+            )
     {
-      // find match
-      gchar       *absoluteDirectory   = NULL;
-      RegexTypes  regexType;
-      GString     *matchTreePathString = g_string_new(NULL);
-      GString     *filePathString      = g_string_new(NULL);
-      guint       lineNumber, columnNumber;
-      GString     *messageString       = g_string_new(NULL);
-      const gchar *messageColor        = COLOR_BUILD_MESSAGES;
-      if      (isMatchingRegexs(GTK_TREE_MODEL(pluginData.configuration.regexStore),
-                                line->str,
-                                matchTreePathString,
-                                &regexType,
+      switch (regexType)
+      {
+        case REGEX_TYPE_NONE:
+          break;
+        case REGEX_TYPE_ENTER:
+          // get directory prefix
+          string_stack_push(pluginData.build.directoryPrefixStack, filePathString->str);
+          break;
+        case REGEX_TYPE_LEAVE:
+          // clear directory prefix
+          string_stack_pop(pluginData.build.directoryPrefixStack);
+          break;
+        case REGEX_TYPE_ERROR:
+          // insert error message
+          absoluteDirectory = getAbsoluteDirectory(workingDirectory,
+                                                   string_stack_top(pluginData.build.directoryPrefixStack)
+                                                  );
+          gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
+                                            &pluginData.build.insertIterator,
+                                            NULL,  // parent
+                                            -1,  // position
+                                            MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
+                                            MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
+                                            MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
+                                            MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
+                                            MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
+                                            MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
+                                            MODEL_END
+                                           );
+
+          // set indicator (if document is loaded)
+          if (   pluginData.configuration.errorIndicators
+              && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
+             )
+          {
+            setIndicator(filePathString->str, lineNumber, &pluginData.configuration.errorIndicatorColor, ERROR_INDICATOR_INDEX);
+
+            pluginData.build.errorWarningIndicatorsCount++;
+          }
+
+          // get message color
+          messageColor = COLOR_BUILD_MESSAGES_MATCHED_ERROR;
+
+          // save last insert position
+          pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.errorsStore;
+          pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
+          pluginData.build.lastErrorsWarningsInsertColor        = messageColor;
+          break;
+        case REGEX_TYPE_WARNING:
+          // insert warning message
+          absoluteDirectory = getAbsoluteDirectory(workingDirectory,
+                                                   string_stack_top(pluginData.build.directoryPrefixStack)
+                                                  );
+          gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
+                                            &pluginData.build.insertIterator,
+                                            NULL,  // parent
+                                            -1,  // position
+                                            MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
+                                            MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
+                                            MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
+                                            MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
+                                            MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
+                                            MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
+                                            MODEL_END
+                                           );
+
+          // set indicator (if document is loaded)
+          if (   pluginData.configuration.warningIndicators
+              && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
+             )
+          {
+            setIndicator(filePathString->str, lineNumber, &pluginData.configuration.warningIndicatorColor, WARNING_INDICATOR_INDEX);
+
+            pluginData.build.errorWarningIndicatorsCount++;
+          }
+
+          // get message color
+          messageColor = COLOR_BUILD_MESSAGES_MATCHED_WARNING;
+
+          // save last insert position
+          pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.warningsStore;
+          pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
+          pluginData.build.lastErrorsWarningsInsertColor        = messageColor;
+          break;
+        case REGEX_TYPE_EXTENSION:
+          // append to last error/warning message
+          if (   (pluginData.build.lastErrorsWarningsInsertStore != NULL)
+              && (pluginData.build.lastErrorsWarningsInsertTreeIterator != NULL)
+             )
+          {
+            absoluteDirectory = getAbsoluteDirectory(workingDirectory,
+                                                     string_stack_top(pluginData.build.directoryPrefixStack)
+                                                    );
+            gtk_tree_store_insert_with_values(pluginData.build.lastErrorsWarningsInsertStore,
+                                              NULL,
+                                              pluginData.build.lastErrorsWarningsInsertTreeIterator,
+                                              -1,  // position
+                                              MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
+                                              MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
+                                              MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
+                                              MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
+                                              MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
+                                              MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
+                                              MODEL_END
+                                             );
+          }
+
+          // get message color
+          messageColor = pluginData.build.lastErrorsWarningsInsertColor;
+          break;
+      }
+    }
+    else if (   (pluginData.projectProperties.errorRegEx->len > 0)
+             && isMatchingRegex(pluginData.projectProperties.errorRegEx->str,
+                                line,
+                                NULL,  // matchCoung
+                                NULL,  // directortPathString
                                 filePathString,
                                 &lineNumber,
                                 &columnNumber,
                                 messageString
                                )
-              )
+
+            )
+    {
+      // insert error message
+      absoluteDirectory = getAbsoluteDirectory(workingDirectory,
+                                               string_stack_top(pluginData.build.directoryPrefixStack)
+                                              );
+      gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
+                                        &pluginData.build.insertIterator,
+                                        NULL,  // parent
+                                        -1,  // position
+                                        MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
+                                        MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
+                                        MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
+                                        MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
+                                        MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
+                                        MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
+                                        MODEL_END
+                                       );
+
+      // set indicator (if document is loaded)
+      if (   pluginData.configuration.errorIndicators
+          && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
+         )
       {
-        switch (regexType)
-        {
-          case REGEX_TYPE_NONE:
-            break;
-          case REGEX_TYPE_ENTER:
-            // get directory prefix
-            string_stack_push(pluginData.build.directoryPrefixStack , filePathString->str);
-            break;
-          case REGEX_TYPE_LEAVE:
-            // clear directory prefix
-            string_stack_pop(pluginData.build.directoryPrefixStack);
-            break;
-          case REGEX_TYPE_ERROR:
-            // insert error message
-            absoluteDirectory = getAbsoluteDirectory(pluginData.build.workingDirectory->str,
-                                                     string_stack_top(pluginData.build.directoryPrefixStack)
-                                                    );
-            gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
-                                              &pluginData.build.insertIter,
-                                              NULL,  // parent
-                                              -1,  // position
-                                              MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                              MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
-                                              MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
-                                              MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
-                                              MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
-                                              MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
-                                              MODEL_ERROR_WARNING_END
-                                             );
-            // set indicator (if document is loaded)
-            if (   pluginData.configuration.errorIndicators
-                && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
-               )
-            {
-              setIndicator(filePathString->str, lineNumber, &pluginData.configuration.errorIndicatorColor, ERROR_INDICATOR_INDEX);
+        setIndicator(filePathString->str, lineNumber, &pluginData.configuration.errorIndicatorColor, ERROR_INDICATOR_INDEX);
 
-              pluginData.build.errorWarningIndicatorsCount++;
-            }
-
-            // get message color
-            messageColor = COLOR_BUILD_MESSAGES_MATCHED_ERROR;
-
-            // save last insert position
-            pluginData.build.lastErrorsWarningsInsertStore    = pluginData.build.errorsStore;
-            pluginData.build.lastErrorsWarningsInsertTreeIter = &pluginData.build.insertIter;
-            pluginData.build.lastErrorsWarningsInsertColor    = messageColor;
-            break;
-          case REGEX_TYPE_WARNING:
-            // insert warning message
-            absoluteDirectory = getAbsoluteDirectory(pluginData.build.workingDirectory->str,
-                                                     string_stack_top(pluginData.build.directoryPrefixStack)
-                                                    );
-            gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
-                                              &pluginData.build.insertIter,
-                                              NULL,  // parent
-                                              -1,  // position
-                                              MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                              MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
-                                              MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
-                                              MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
-                                              MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
-                                              MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
-                                              MODEL_ERROR_WARNING_END
-                                             );
-
-            // set indicator (if document is loaded)
-            if (   pluginData.configuration.warningIndicators
-                && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
-               )
-            {
-              setIndicator(filePathString->str, lineNumber, &pluginData.configuration.warningIndicatorColor, WARNING_INDICATOR_INDEX);
-
-              pluginData.build.errorWarningIndicatorsCount++;
-            }
-
-            // get message color
-            messageColor = COLOR_BUILD_MESSAGES_MATCHED_WARNING;
-
-            // save last insert position
-            pluginData.build.lastErrorsWarningsInsertStore    = pluginData.build.warningsStore;
-            pluginData.build.lastErrorsWarningsInsertTreeIter = &pluginData.build.insertIter;
-            pluginData.build.lastErrorsWarningsInsertColor    = messageColor;
-            break;
-          case REGEX_TYPE_EXTENSION:
-            // append to last error/warning message
-            if (   (pluginData.build.lastErrorsWarningsInsertStore != NULL)
-                && (pluginData.build.lastErrorsWarningsInsertTreeIter != NULL)
-               )
-            {
-              absoluteDirectory = getAbsoluteDirectory(pluginData.build.workingDirectory->str,
-                                                       string_stack_top(pluginData.build.directoryPrefixStack)
-                                                      );
-              gtk_tree_store_insert_with_values(pluginData.build.lastErrorsWarningsInsertStore,
-                                                NULL,
-                                                pluginData.build.lastErrorsWarningsInsertTreeIter,
-                                                -1,  // position
-                                                MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                                MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
-                                                MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
-                                                MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
-                                                MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
-                                                MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
-                                                MODEL_ERROR_WARNING_END
-                                               );
-            }
-
-            // get message color
-            messageColor = pluginData.build.lastErrorsWarningsInsertColor;
-            break;
-        }
-      }
-      else if (   (pluginData.projectProperties.errorRegEx->len > 0)
-               && isMatchingRegex(pluginData.projectProperties.errorRegEx->str,
-                                  line->str,
-                                  NULL,  // matchCoung
-                                  NULL,  // directortPathString
-                                  filePathString,
-                                  &lineNumber,
-                                  &columnNumber,
-                                  messageString
-                                 )
-
-              )
-      {
-        // insert error message
-        absoluteDirectory = getAbsoluteDirectory(pluginData.build.workingDirectory->str,
-                                                 string_stack_top(pluginData.build.directoryPrefixStack)
-                                                );
-        gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
-                                          &pluginData.build.insertIter,
-                                          NULL,  // parent
-                                          -1,  // position
-                                          MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                          MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
-                                          MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
-                                          MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
-                                          MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
-                                          MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
-                                          MODEL_ERROR_WARNING_END
-                                         );
-
-        // set indicator (if document is loaded)
-        if (   pluginData.configuration.errorIndicators
-            && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
-           )
-        {
-          setIndicator(filePathString->str, lineNumber, &pluginData.configuration.errorIndicatorColor, ERROR_INDICATOR_INDEX);
-
-          pluginData.build.errorWarningIndicatorsCount++;
-        }
-
-        // save last insert position
-        pluginData.build.lastErrorsWarningsInsertStore    = pluginData.build.errorsStore;
-        pluginData.build.lastErrorsWarningsInsertTreeIter = &pluginData.build.insertIter;
-
-        // get message color
-        messageColor = COLOR_BUILD_MESSAGES_MATCHED_ERROR;
-      }
-      else if (   (pluginData.projectProperties.warningRegEx->len > 0)
-               && isMatchingRegex(pluginData.projectProperties.warningRegEx->str,
-                                  line->str,
-                                  NULL,  // matchCoung
-                                  NULL,  // matchDirectoryPathString
-                                  filePathString,
-                                  &lineNumber,
-                                  &columnNumber,
-                                  messageString
-                                 )
-
-              )
-      {
-        // insert warning message
-        absoluteDirectory = getAbsoluteDirectory(pluginData.build.workingDirectory->str,
-                                                 string_stack_top(pluginData.build.directoryPrefixStack)
-                                                );
-        gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
-                                          &pluginData.build.insertIter,
-                                          NULL,  // parent
-                                          -1,  // position
-                                          MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                          MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
-                                          MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
-                                          MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
-                                          MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
-                                          MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
-                                          MODEL_ERROR_WARNING_END
-                                         );
-
-        // set indicator (if document is loaded)
-        if (   pluginData.configuration.warningIndicators
-            && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
-           )
-        {
-          setIndicator(filePathString->str, lineNumber, &pluginData.configuration.warningIndicatorColor, WARNING_INDICATOR_INDEX);
-
-          pluginData.build.errorWarningIndicatorsCount++;
-        }
-
-        // save last insert position
-        pluginData.build.lastErrorsWarningsInsertStore    = pluginData.build.warningsStore;
-        pluginData.build.lastErrorsWarningsInsertTreeIter = &pluginData.build.insertIter;
-
-        // get message color
-        messageColor = COLOR_BUILD_MESSAGES_MATCHED_WARNING;
+        pluginData.build.errorWarningIndicatorsCount++;
       }
 
-      // set message in message tab
-      gtk_list_store_set(pluginData.build.messagesStore,
-                         &pluginData.build.messageTreeIter,
-                         MODEL_MESSAGE_COLOR,         messageColor,
-                         MODEL_MESSAGE_TREE_PATH,     matchTreePathString->str,
-                         MODEL_MESSAGE_DIRECTORY,     absoluteDirectory,
-                         MODEL_MESSAGE_FILE_PATH,     filePathString->str,
-                         MODEL_MESSAGE_LINE_NUMBER,   lineNumber,
-                         MODEL_MESSAGE_COLUMN_NUMBER, columnNumber,
-                         MODEL_MESSAGE_MESSAGE,       line->str,
-                         MODEL_MESSAGE_END
-                        );
+      // save last insert position
+      pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.errorsStore;
+      pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
 
-  // TODO: msgwin_compiler_add(COLOR_BLUE, _("%s (in directory: %s)"), cmd, utf8_working_dir);
-      showLastLine(GTK_SCROLLED_WINDOW(pluginData.widgets.messagesTab));
+      // get message color
+      messageColor = COLOR_BUILD_MESSAGES_MATCHED_ERROR;
+    }
+    else if (   (pluginData.projectProperties.warningRegEx->len > 0)
+             && isMatchingRegex(pluginData.projectProperties.warningRegEx->str,
+                                line,
+                                NULL,  // matchCoung
+                                NULL,  // matchDirectoryPathString
+                                filePathString,
+                                &lineNumber,
+                                &columnNumber,
+                                messageString
+                               )
 
-      g_string_free(messageString, TRUE);
-      g_string_free(filePathString, TRUE);
-      g_string_free(matchTreePathString, TRUE);
-      g_free(absoluteDirectory);
-      g_free(messageTreePath);
+            )
+    {
+      // insert warning message
+      absoluteDirectory = getAbsoluteDirectory(workingDirectory,
+                                               string_stack_top(pluginData.build.directoryPrefixStack)
+                                              );
+      gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
+                                        &pluginData.build.insertIterator,
+                                        NULL,  // parent
+                                        -1,  // position
+                                        MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
+                                        MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
+                                        MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
+                                        MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
+                                        MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
+                                        MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
+                                        MODEL_END
+                                       );
 
-      // update number of errors/warnings
-      uint n;
-      n = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(pluginData.build.errorsStore),NULL);
-      if (n > 0)
+      // set indicator (if document is loaded)
+      if (   pluginData.configuration.warningIndicators
+          && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
+         )
       {
-        g_string_printf(string, "Errors [%u]", n);
-      }
-      else
-      {
-        g_string_printf(string, "Errors");
-      }
-      gtk_label_set_text(GTK_LABEL(pluginData.widgets.errorsTabLabel), string->str);
-      n = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(pluginData.build.warningsStore),NULL);
-      if (n > 0)
-      {
-        g_string_printf(string, "Warnings [%u]", n);
-      }
-      else
-      {
-        g_string_printf(string, "Warnings");
-      }
-      gtk_label_set_text(GTK_LABEL(pluginData.widgets.warningsTabLabel), string->str);
+        setIndicator(filePathString->str, lineNumber, &pluginData.configuration.warningIndicatorColor, WARNING_INDICATOR_INDEX);
 
-      if (!pluginData.build.showedFirstErrorWarning)
-      {
-        // initialise prev/next error/warning iterators
-        pluginData.build.errorsTreeIterValid = gtk_tree_model_get_iter_first(gtk_tree_view_get_model(GTK_TREE_VIEW(pluginData.widgets.errorsTree)),
-                                                                             &pluginData.build.errorsTreeIter
-                                                                            );
-        pluginData.build.warningsTreeIterValid = gtk_tree_model_get_iter_first(gtk_tree_view_get_model(GTK_TREE_VIEW(pluginData.widgets.warningsTree)),
-                                                                               &pluginData.build.warningsTreeIter
-                                                                              );
-
-        // show first error/warning
-        if      (pluginData.configuration.autoShowFirstError && pluginData.build.errorsTreeIterValid)
-        {
-          showBuildErrorsTab();
-          showNextError();
-          pluginData.build.showedFirstErrorWarning = TRUE;
-        }
-        else if (pluginData.configuration.autoShowFirstWarning && pluginData.build.warningsTreeIterValid)
-        {
-          showBuildWarningsTab();
-          showNextWarning();
-          pluginData.build.showedFirstErrorWarning = TRUE;
-        }
+        pluginData.build.errorWarningIndicatorsCount++;
       }
 
-      // free resources
-      g_string_free(string, TRUE);
+      // save last insert position
+      pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.warningsStore;
+      pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
+
+      // get message color
+      messageColor = COLOR_BUILD_MESSAGES_MATCHED_WARNING;
+    }
+
+    // set message in builder message tab
+    gtk_list_store_set(pluginData.build.messagesStore,
+                       &pluginData.build.messageTreeIterator,
+                       MODEL_MESSAGE_COLOR,         messageColor,
+                       MODEL_MESSAGE_TREE_PATH,     matchTreePathString->str,
+                       MODEL_MESSAGE_DIRECTORY,     absoluteDirectory,
+                       MODEL_MESSAGE_FILE_PATH,     filePathString->str,
+                       MODEL_MESSAGE_LINE_NUMBER,   lineNumber,
+                       MODEL_MESSAGE_COLUMN_NUMBER, columnNumber,
+                       MODEL_MESSAGE_MESSAGE,       line,
+                       MODEL_END
+                      );
+
+// TODO: msgwin_compiler_add(COLOR_BLUE, _("%s (in directory: %s)"), cmd, utf8_working_dir);
+    showLastLine(GTK_SCROLLED_WINDOW(pluginData.widgets.messagesTab));
+
+    g_string_free(messageString, TRUE);
+    g_string_free(filePathString, TRUE);
+    g_string_free(matchTreePathString, TRUE);
+    g_free(absoluteDirectory);
+    g_free(messageTreePath);
+
+    // update number of errors/warnings
+    GString *string = g_string_new(NULL);
+    uint n;
+    n = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(pluginData.build.errorsStore),NULL);
+    if (n > 0)
+    {
+      g_string_printf(string, "Errors [%u]", n);
     }
     else
     {
-      // insert into message tab
-      msgwin_msg_add(COLOR_BLACK, -1, NULL, "%s", line->str);
+      g_string_printf(string, "Errors");
     }
+    gtk_label_set_text(GTK_LABEL(pluginData.widgets.errorsTabLabel), string->str);
+    n = gtk_tree_model_iter_n_children(GTK_TREE_MODEL(pluginData.build.warningsStore),NULL);
+    if (n > 0)
+    {
+      g_string_printf(string, "Warnings [%u]", n);
+    }
+    else
+    {
+      g_string_printf(string, "Warnings");
+    }
+    gtk_label_set_text(GTK_LABEL(pluginData.widgets.warningsTabLabel), string->str);
+
+    if (!pluginData.build.showedFirstErrorWarning)
+    {
+      // initialise prev/next error/warning iterators
+      pluginData.build.errorsTreeIterorValid = gtk_tree_model_get_iter_first(gtk_tree_view_get_model(GTK_TREE_VIEW(pluginData.widgets.errorsTree)),
+                                                                             &pluginData.build.errorsTreeIterator
+                                                                            );
+      pluginData.build.warningsTreeIterorValid = gtk_tree_model_get_iter_first(gtk_tree_view_get_model(GTK_TREE_VIEW(pluginData.widgets.warningsTree)),
+                                                                               &pluginData.build.warningsTreeIterator
+                                                                              );
+
+      // show first error/warning
+      if      (pluginData.configuration.autoShowFirstError && pluginData.build.errorsTreeIterorValid)
+      {
+        showBuildErrorsTab();
+        showNextError();
+        pluginData.build.showedFirstErrorWarning = TRUE;
+      }
+      else if (pluginData.configuration.autoShowFirstWarning && pluginData.build.warningsTreeIterorValid)
+      {
+        showBuildWarningsTab();
+        showNextWarning();
+        pluginData.build.showedFirstErrorWarning = TRUE;
+      }
+    }
+    g_string_free(string, TRUE);
+  }
+  else
+  {
+    // set message in builder message tab
+    gtk_list_store_set(pluginData.build.messagesStore,
+                       &pluginData.build.messageTreeIterator,
+                       MODEL_MESSAGE_COLOR,         COLOR_BUILD_MESSAGES,
+                       MODEL_MESSAGE_MESSAGE,       line,
+                       MODEL_END
+                      );
+
+    // insert into geany message tab
+    msgwin_msg_add(COLOR_BLACK, -1, NULL, "%s", line);
   }
 }
 
 /***********************************************************************\
 * Name   : onExecuteCommandExit
-* Purpose: handle exit of execute process
-* Input  : pid    - process id (not used)
-*          status - process exit status
-*          data   - user data (not used)
+* Purpose: callback on command execute exit
+* Input  : status   - status
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onExecuteCommandExit(GPid     pid,
-                                gint     status,
-                                gpointer data
-                               )
+LOCAL void onExecuteCommandExit(gint status, void *userData)
 {
-  UNUSED_VARIABLE(pid);
-  UNUSED_VARIABLE(status);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   gchar *doneMessage = g_strdup_printf(_("Build done (exit code: %d)"), status);
   gtk_list_store_insert_with_values(pluginData.build.messagesStore,
@@ -3254,29 +3812,29 @@ LOCAL void onExecuteCommandExit(GPid     pid,
                                     -1,
                                     MODEL_MESSAGE_COLOR,   COLOR_BUILD_INFO,
                                     MODEL_MESSAGE_MESSAGE, doneMessage,
-                                    MODEL_MESSAGE_END
+                                    MODEL_END
                                    );
   g_free(doneMessage);
   showLastLine(GTK_SCROLLED_WINDOW(pluginData.widgets.messagesTab));
 
   // initialise prev/next error/warning iterators
-  pluginData.build.errorsTreeIterValid = gtk_tree_model_get_iter_first(gtk_tree_view_get_model(GTK_TREE_VIEW(pluginData.widgets.errorsTree)),
-                                                                       &pluginData.build.errorsTreeIter
-                                                                      );
-  pluginData.build.warningsTreeIterValid = gtk_tree_model_get_iter_first(gtk_tree_view_get_model(GTK_TREE_VIEW(pluginData.widgets.warningsTree)),
-                                                                         &pluginData.build.warningsTreeIter
+  pluginData.build.errorsTreeIterorValid = gtk_tree_model_get_iter_first(gtk_tree_view_get_model(GTK_TREE_VIEW(pluginData.widgets.errorsTree)),
+                                                                         &pluginData.build.errorsTreeIterator
                                                                         );
+  pluginData.build.warningsTreeIterorValid = gtk_tree_model_get_iter_first(gtk_tree_view_get_model(GTK_TREE_VIEW(pluginData.widgets.warningsTree)),
+                                                                           &pluginData.build.warningsTreeIterator
+                                                                          );
 
   if (!pluginData.build.showedFirstErrorWarning)
   {
     // show first error/warning
-    if      (pluginData.configuration.autoShowFirstError && pluginData.build.errorsTreeIterValid)
+    if      (pluginData.configuration.autoShowFirstError && pluginData.build.errorsTreeIterorValid)
     {
       showBuildErrorsTab();
       showNextError();
       pluginData.build.showedFirstErrorWarning = TRUE;
     }
-    else if (pluginData.configuration.autoShowFirstWarning && pluginData.build.warningsTreeIterValid)
+    else if (pluginData.configuration.autoShowFirstWarning && pluginData.build.warningsTreeIterorValid)
     {
       showBuildWarningsTab();
       showNextWarning();
@@ -3284,7 +3842,6 @@ LOCAL void onExecuteCommandExit(GPid     pid,
     }
   }
 
-  pluginData.build.pid = 0;
   setEnableToolbar(TRUE);
 }
 
@@ -3292,36 +3849,31 @@ LOCAL void onExecuteCommandExit(GPid     pid,
 * Name   : executeCommand
 * Purpose: execute external command
 * Input  : commandLineTemplate      - command line template to execute
-*          workingDirectoryTempalte - working directory template
+*          workingDirectoryTemplate - working directory template
 *          customText               - custome text or NULL
-*          stdoutHandler            - stdout-handler
-*          stderrHandler            - stderr-handler
+*          dockerContainerId        - docker container id
+*          parseOutput              - parse output of command for
+*                                     errors/warnings
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void executeCommand(const gchar   *commandLineTemplate,
-                          const gchar   *workingDirectoryTempalte,
-                          const gchar   *customText,
-                          const gchar   *dockerContainerId,
-                          gboolean      parseOutput
+LOCAL void executeCommand(const gchar *commandLineTemplate,
+                          const gchar *workingDirectoryTemplate,
+                          const gchar *customText,
+                          const gchar *dockerContainerId,
+                          gboolean    parseOutput
                          )
 {
-  GString *string;
-  GError  *error;
-
   g_assert(commandLineTemplate != NULL);
   g_assert(geany_data != NULL);
   g_assert(geany_data->app != NULL);
 
-  if (!isStringEmpty(commandLineTemplate))
+  if (!stringIsEmpty(commandLineTemplate))
   {
-    // get project
-    GeanyProject *project = geany_data->app->project;
-
-    // get current document (if possible)
-    GeanyDocument *document = document_get_current();
+    clearAll();
+    pluginData.build.showedFirstErrorWarning = FALSE;
 
     // save all documents
     if (pluginData.configuration.autoSaveAll)
@@ -3334,7 +3886,6 @@ LOCAL void executeCommand(const gchar   *commandLineTemplate,
           if (!document_save_file(documents[i], FALSE))
           {
             dialogs_show_msgbox(GTK_MESSAGE_ERROR, "Cannot save document '%s'", documents[i]->file_name);
-            pluginData.build.pid = 0;
             setEnableToolbar(TRUE);
             return;
           }
@@ -3343,167 +3894,41 @@ LOCAL void executeCommand(const gchar   *commandLineTemplate,
     }
 
     // get working directory
-    gchar *workingDirectory = expandMacros(project, document, workingDirectoryTempalte, NULL, NULL);
+    const gchar *workingDirectory = getWorkingDirectory(workingDirectoryTemplate);
+    g_assert(workingDirectory != NULL);
 
-    // get docker wrapper command
-    GString *wrapperCommand;
-    if (dockerContainerId != NULL)
-    {
-      wrapperCommand = g_string_new("docker exec ");
-      if (workingDirectory != NULL)
-      {
-        g_string_append_printf(wrapperCommand," --workdir '%s'", workingDirectory);
-      }
-      g_string_append_printf(wrapperCommand," %s", dockerContainerId);
-    }
-    else
-    {
-      wrapperCommand = NULL;
-    }
+    // get command line
+    const gchar *commandLine = expandMacros(geany_data->app->project,
+                                            document_get_current(),
+                                            commandLineTemplate,
+                                            customText
+                                           );
+    g_assert(commandLine != NULL);
 
-    // get command
-    gchar *commandLine = expandMacros(project,
-                                      document,
-                                      commandLineTemplate,
-                                      (wrapperCommand != NULL) ? wrapperCommand->str : NULL,
-                                      customText
-                                     );
-
-    // create command line argument array
-    GPtrArray *argv = g_ptr_array_new_with_free_func(g_free);
-    #ifdef G_OS_UNIX
-      // add process group wrapper: make sure signal term will terminate process and all sub-processes
-      g_ptr_array_add(argv, g_strdup("setsid"));
-      g_ptr_array_add(argv, g_strdup("sh"));
-      g_ptr_array_add(argv, g_strdup("-c"));
-
-      /* Note: redirect stdout to stderr with another sh-instance as a
-       * work-around for unordered processing of stdout/stderr by the
-       * GTK spawn-function: depending on the executed command the
-       * ordering of lines printed to stdout and stderr may no be in
-       * the appropiated order. This would make it impossible to get the
-       * correct relation of lines printed to stdout and stderr, e. g.
-       * 'make' print directory changes to stdout, while gcc report errors
-       * and warnings on stderr.
-       */
-      string = g_string_new("sh -c '");
-      gchar *escapedCommandLine = g_strescape(commandLine, NULL);
-      g_string_append(string, escapedCommandLine);
-      g_free(escapedCommandLine);
-      g_string_append(string, "' 1>&2");
-      g_ptr_array_add(argv, string->str);
-      g_string_free(string, FALSE);
-    #else
-      // parse and use command line directly
-      gint commandLineArgc;
-      gchar **commandLineArgv;
-      g_shell_parse_argv(commandLine, &commandLineArgc, &commandLineArgv, NULL);
-      for (guint i = 0; i < commandLineArgc; i++)
-      {
-        g_ptr_array_add(argv, g_strdup(commandLineArgv[i]));
-      }
-      g_strfreev(commandLineArgv);
-    #endif
-    g_ptr_array_add(argv, NULL);
-
-    // if no working directory is given, use file/project or current directory
-    if (workingDirectory == NULL)
-    {
-      if      (project != NULL)
-      {
-        workingDirectory = g_strdup(project->base_path);
-      }
-      else if (document != NULL)
-      {
-        workingDirectory = g_path_get_dirname(document->file_name);
-      }
-      else
-      {
-        workingDirectory = g_get_current_dir();
-      }
-    }
-
-    // run command
-    clearAll();
-    string = g_string_new(NULL);
-    g_string_printf(string, "Working directory: %s", workingDirectory);
-    gtk_list_store_insert_with_values(pluginData.build.messagesStore,
-                                      NULL,
-                                      -1,
-                                      MODEL_MESSAGE_COLOR,   COLOR_BUILD_INFO,
-                                      MODEL_MESSAGE_MESSAGE, string->str,
-                                      MODEL_MESSAGE_END
-                                     );
-    g_string_printf(string, "Build command line: %s", commandLine);
-    gtk_list_store_insert_with_values(pluginData.build.messagesStore,
-                                      NULL,
-                                      -1,
-                                      MODEL_MESSAGE_COLOR,   COLOR_BUILD_INFO,
-                                      MODEL_MESSAGE_MESSAGE, string->str,
-                                      MODEL_MESSAGE_END
-                                     );
-    g_string_free(string, TRUE);
-    showLastLine(GTK_SCROLLED_WINDOW(pluginData.widgets.messagesTab));
-
-    g_string_assign(pluginData.build.workingDirectory, workingDirectory);
-    pluginData.build.showedFirstErrorWarning = FALSE;
-
-    error = NULL;
-    if (!spawn_with_callbacks(workingDirectory,
-                              NULL, // commandLine,
-                              (gchar**)argv->pdata,
-                              NULL, // envp,
-                              SPAWN_ASYNC|SPAWN_LINE_BUFFERED,
-                              NULL, // stdin_cb,
-                              NULL, // stdin_data,
-                              onExecuteOutput,
-                              GUINT_TO_POINTER(parseOutput),
-                              0, // stdout_max_length,
-                              onExecuteOutput,
-                              GUINT_TO_POINTER(parseOutput),
-                              0, // stderr_max_length,
-                              onExecuteCommandExit, // exit_cb,
-                              NULL, // exit_data,
-                              &pluginData.build.pid,
-                              &error
+    // execute command
+    gchar errorMessage[256];
+    printMessage(_("Working directory: %s"), workingDirectory);
+    printMessage(_("Build command line: %s"), commandLine);
+    if (!Execute_asyncExecute(commandLine,
+                              workingDirectory,
+                              dockerContainerId,
+                              CALLBACK(onExecuteCommandParse,&parseOutput),
+                              CALLBACK(onExecuteCommandExit,NULL),
+                              errorMessage,
+                              sizeof(errorMessage)
                              )
        )
     {
-      gchar *failedMessage;
-      if (error != NULL)
-      {
-        dialogs_show_msgbox(GTK_MESSAGE_ERROR, "Cannot run '%s': %s", commandLine, error->message);
-        failedMessage = g_strdup_printf(_("Build failed (error: %s)"), error->message);
-      }
-      else
-      {
-        dialogs_show_msgbox(GTK_MESSAGE_ERROR, "Cannot run '%s'", commandLine);
-        failedMessage = g_strdup_printf(_("Build failed"));
-      }
-      g_error_free(error);
-
-      gtk_list_store_insert_with_values(pluginData.build.messagesStore,
-                                        NULL,
-                                        -1,
-                                        MODEL_MESSAGE_COLOR,   COLOR_BUILD_ERROR,
-                                        MODEL_MESSAGE_MESSAGE, failedMessage,
-                                        MODEL_MESSAGE_END
-                                       );
-      g_free(failedMessage);
-      showLastLine(GTK_SCROLLED_WINDOW(pluginData.widgets.messagesTab));
-
-      pluginData.build.pid = 0;
+      dialogs_show_msgbox(GTK_MESSAGE_ERROR, "%s", errorMessage);
       setEnableToolbar(TRUE);
+      g_free((gchar*)commandLine);
+      g_free((gchar*)workingDirectory);
+      return;
     }
 
     // free resources
-    g_ptr_array_free(argv, TRUE);
-    g_free(commandLine);
-    if (wrapperCommand != NULL)
-    {
-      g_string_free(wrapperCommand, TRUE);
-    }
-    g_free(workingDirectory);
+    g_free((gchar*)commandLine);
+    g_free((gchar*)workingDirectory);
   }
 }
 
@@ -3518,87 +3943,79 @@ LOCAL void executeCommand(const gchar   *commandLineTemplate,
 
 LOCAL void executeCommandAbort()
 {
-  if (pluginData.build.pid > 1)
-  {
-    spawn_kill_process(-pluginData.build.pid, NULL);
-    setEnableAbort(FALSE);
-  }
+  Execute_abortAyncCommand();
+  setEnableAbort(FALSE);
 }
 
 // ---------------------------------------------------------------------
 
 /***********************************************************************\
-* Name   : onMenuItemCommand
-* Purpose: menu item callbacks
-* Input  : widget - widget (not used)
+* Name   : onExecuteCommand
+* Purpose: execute command callback
+* Input  : widget - widget
 *          data   - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemCommand(GtkWidget *widget, gpointer data)
+LOCAL void onExecuteCommand(GtkWidget *widget, gpointer data)
 {
-  const Command *command = (Command*)data;
-  g_assert(command != NULL);
+  UNUSED_VARIABLE(data);
 
-  UNUSED_VARIABLE(widget);
+  g_assert(widget != NULL);
 
-  setEnableToolbar(FALSE);
-  showBuildMessagesTab();
-  executeCommand(command->commandLine,
-                 command->workingDirectory,
-                 NULL,
-                 pluginData.attachedDockerContainerId,
-                 command->parseOutput
-                );
-}
+  GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(widget), "listStore"));
+  g_assert(listStore != NULL);
+  gchar        *iteratorString = (gchar*)g_object_get_data(G_OBJECT(widget), "iteratorString");
+  g_assert(iteratorString != NULL);
 
-/***********************************************************************\
-* Name   : onMenuItemProjectCommand
-* Purpose: menu item callbacks
-* Input  : widget - widget (not used)
-*          data   - user data (not used)
-* Output : -
-* Return : -
-* Notes  : -
-\***********************************************************************/
-
-LOCAL void onMenuItemProjectCommand(GtkWidget *widget, gpointer data)
-{
-  guint i = GPOINTER_TO_UINT(data);
-
-  g_assert(i < MAX_COMMANDS);
-
-  UNUSED_VARIABLE(widget);
-
-  const Command *command = getProjectCommand(i);
-  if (command != NULL)
+  GtkTreeIter treeIterator;
+  if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(listStore),
+                                          &treeIterator,
+                                          iteratorString
+                                         )
+     )
   {
+    gchar    *commandLine;
+    gchar    *workingDirectory;
+    gboolean parseOutput;
+    gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                       &treeIterator,
+                       MODEL_COMMAND_COMMAND_LINE,     &commandLine,
+                       MODEL_COMMAND_WORKING_DIRECTORY,&workingDirectory,
+                       MODEL_COMMAND_PARSE_OUTPUT,     &parseOutput,
+                       MODEL_END
+                      );
+
     setEnableToolbar(FALSE);
     showBuildMessagesTab();
-    executeCommand(command->commandLine,
-                   command->workingDirectory,
-                   NULL,
+    executeCommand(commandLine,
+                   workingDirectory,
+                   NULL,  // customText
                    pluginData.attachedDockerContainerId,
-                   command->parseOutput
+                   parseOutput
                   );
+
+    g_free(workingDirectory);
+    g_free(commandLine);
   }
 }
 
 /***********************************************************************\
 * Name   : onMenuItemShowPrevError
 * Purpose:
-* Input  : -
+* Input  : widget   - widget (unused)
+*          userData - user data (unused)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemShowPrevError(GtkWidget *widget, gpointer data)
+LOCAL void onMenuItemShowPrevError(GtkWidget *widget, gpointer userData)
 {
   UNUSED_VARIABLE(widget);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   showPrevError();
 }
@@ -3606,16 +4023,17 @@ LOCAL void onMenuItemShowPrevError(GtkWidget *widget, gpointer data)
 /***********************************************************************\
 * Name   : onMenuItemShowNextError
 * Purpose:
-* Input  : -
+* Input  : widget   - widget
+*          userData - user data
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemShowNextError(GtkWidget *widget, gpointer data)
+LOCAL void onMenuItemShowNextError(GtkWidget *widget, gpointer userData)
 {
   UNUSED_VARIABLE(widget);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   showNextError();
 }
@@ -3623,16 +4041,17 @@ LOCAL void onMenuItemShowNextError(GtkWidget *widget, gpointer data)
 /***********************************************************************\
 * Name   : onMenuItemShowPrevWarning
 * Purpose:
-* Input  : -
+* Input  : widget   - widget (unused)
+*          userData - user data (unused)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemShowPrevWarning(GtkWidget *widget, gpointer data)
+LOCAL void onMenuItemShowPrevWarning(GtkWidget *widget, gpointer userData)
 {
   UNUSED_VARIABLE(widget);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   showPrevWarning();
 }
@@ -3640,16 +4059,17 @@ LOCAL void onMenuItemShowPrevWarning(GtkWidget *widget, gpointer data)
 /***********************************************************************\
 * Name   : onMenuItemShowNextWarning
 * Purpose:
-* Input  : -
+* Input  : widget   - widget (unused)
+*          userData - user data (unused)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemShowNextWarning(GtkWidget *widget, gpointer data)
+LOCAL void onMenuItemShowNextWarning(GtkWidget *widget, gpointer userData)
 {
   UNUSED_VARIABLE(widget);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   showNextWarning();
 }
@@ -3657,97 +4077,103 @@ LOCAL void onMenuItemShowNextWarning(GtkWidget *widget, gpointer data)
 /***********************************************************************\
 * Name   : onMenuItemAbort
 * Purpose:
-* Input  : -
+* Input  : widget   - widget (unused)
+*          userData - user data (unused)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemAbort(GtkWidget *widget, gpointer data)
+LOCAL void onMenuItemAbort(GtkWidget *widget, gpointer userData)
 {
   UNUSED_VARIABLE(widget);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   executeCommandAbort();
 }
 
 /***********************************************************************\
-* Name   : onAttachDockerContainerPSOutput
-* Purpose: parse docker ps output
-* Input  : line        - line
-*          ioCondition - i/o condition set
-*          data        - user data (not used)
+* Name   : attachDockerContainer
+* Purpose: attach to docker container
+* Input  : dockerContainerId - docker container id
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onAttachDockerContainerPSOutput(GString *line, GIOCondition ioCondition, gpointer data)
+LOCAL void attachDockerContainer(const gchar *dockerContainerId)
 {
-  GtkListStore *listStore = (GtkListStore*)data;
-
-  if ((ioCondition & (G_IO_IN | G_IO_PRI)) != 0)
+  if (pluginData.attachedDockerContainerId != NULL) g_free((gchar*)pluginData.attachedDockerContainerId);
+  pluginData.attachedDockerContainerId = dockerContainerId;
+  gchar *text = g_strdup_printf(_("Detach from docker container '%s'"), pluginData.attachedDockerContainerId);
   {
-    // remove LF/CR
-    g_strchomp(line->str);
-
-    if (!isStringEmpty(line->str))
-    {
-      gchar **tokens   = g_strsplit(line->str, " ", 2);
-      g_assert(tokens != NULL);
-      guint tokenCount = g_strv_length(tokens);
-
-      gtk_list_store_insert_with_values(listStore,
-                                        NULL,
-                                        -1,
-                                        MODEL_ATTACH_DOCKER_CONTAINER_ID,    (tokenCount >= 1) ? tokens[0] : "",
-                                        MODEL_ATTACH_DOCKER_CONTAINER_IMAGE, (tokenCount >= 2) ? tokens[1] : "",
-                                        MODEL_REGEX_END
-                                       );
-      g_strfreev(tokens);
-    }
+    gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.dockerContainer),text);
   }
+  g_free(text);
+  gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.dockerContainer),TRUE);
 }
 
 /***********************************************************************\
-* Name   : onAttachDockerContainerRowActivated
-* Purpose: callback on row activated
+* Name   : detachDockerContainer
+* Purpose: detach from docker container
 * Input  : -
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onAttachDockerContainerRowActivated(GtkTreeView        *view,
-                                               GtkTreePath        *path,
-                                               GtkTreeViewColumn  *column,
-                                               gpointer            data
+LOCAL void detachDockerContainer()
+{
+  g_free((gchar*)pluginData.attachedDockerContainerId);
+  pluginData.attachedDockerContainerId = NULL;
+
+  gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.dockerContainer),_("Attach to docker container"));
+  gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.dockerContainer),FALSE);
+}
+
+/***********************************************************************\
+* Name   : onDockerContainerDialogRowActivated
+* Purpose: callback on row activated
+* Input  : treeView       - tree view (not used)
+*          treePath       - tree path (not used)
+*          treeViewColumn - tree view column (not used)
+*          userData       - user data: dialog
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onDockerContainerDialogRowActivated(GtkTreeView       *treeView,
+                                               GtkTreePath       *treePath,
+                                               GtkTreeViewColumn *treeViewColumn,
+                                               gpointer          userData
                                               )
 {
-  GtkWidget *dialog = (GtkWidget*)data;
+  GtkWidget *dialog = (GtkWidget*)userData;
   g_assert(dialog != NULL);
 
-  UNUSED_VARIABLE(view);
-  UNUSED_VARIABLE(path);
-  UNUSED_VARIABLE(column);
+  UNUSED_VARIABLE(treeView);
+  UNUSED_VARIABLE(treePath);
+  UNUSED_VARIABLE(treeViewColumn);
 
   gtk_dialog_response(GTK_DIALOG(dialog), GTK_RESPONSE_ACCEPT);
 }
 
 /***********************************************************************\
-* Name   : onAttachDockerContainerCursorChanged
+* Name   : onDockerContainerDialogCursorChanged
 * Purpose: callback on cursor changed (selection changed)
-* Input  : -
+* Input  : treeView - tree view widget (not used)
+*          userData - user data: OK widget
 * Output : -
 * Return : FALSE
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean onAttachDockerContainerCursorChanged(GtkTreeView *treeView,
-                                                    gpointer    data
+LOCAL gboolean onDockerContainerDialogCursorChanged(GtkTreeView *treeView,
+                                                    gpointer    userData
                                                    )
 {
-  GtkWidget *widgetOK = (GtkWidget*)data;
+  GtkWidget *widgetOK = (GtkWidget*)userData;
   g_assert(widgetOK != NULL);
 
   UNUSED_VARIABLE(treeView);
@@ -3758,71 +4184,76 @@ LOCAL gboolean onAttachDockerContainerCursorChanged(GtkTreeView *treeView,
 }
 
 /***********************************************************************\
-* Name   : onMenuItemAttachDetachDockerContainer
-* Purpose: callback on menu item attach/detach docker container
-* Input  : -
+* Name   : onDockerContainerListParse
+* Purpose: callback to parse docker container list output
+* Input  : workingDirectory - working directory
+*          line             - line (without trailing \n)
+*          userData         - user data: TRUE to parse output
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemAttachDetachDockerContainer(GtkWidget *widget, gpointer data)
+LOCAL void onDockerContainerListParse(const gchar *workingDirectory,
+                                      const gchar *line,
+                                      void        *userData
+                                     )
 {
-  GtkWidget *widgetContainerList;
-  GtkWidget *widgetOK;
-  gint      result;
+  GtkListStore *listStore = (GtkListStore*)userData;
+  g_assert(listStore != NULL);
 
-  g_assert(geany_data != NULL);
-  g_assert(geany_data->main_widgets != NULL);
+  UNUSED_VARIABLE(workingDirectory);
 
-  UNUSED_VARIABLE(widget);
-  UNUSED_VARIABLE(data);
-
-  if (pluginData.attachedDockerContainerId == NULL)
+  if (!stringIsEmpty(line))
   {
-    // get running docker containers
-    GtkListStore *attachDetachDockerContainerStore = gtk_list_store_new(MODEL_ATTACH_DOCKER_CONTAINER_COUNT,
-                                                                  G_TYPE_STRING,  // language
-                                                                  G_TYPE_STRING  // group
-                                                                 );
-    GError *error;
-    if (!spawn_with_callbacks(NULL, // workingDirectory
-                              "docker ps --format '{{.ID}} {{.Image}}'",
-                              NULL, // argv
-                              NULL, // envp
-                              SPAWN_LINE_BUFFERED,
-                              NULL, // stdin_cb
-                              NULL, // stdin_data
-                              onAttachDockerContainerPSOutput,
-                              attachDetachDockerContainerStore,
-                              0, // stdout_max_length
-// TODO:
-NULL,//                            stderrHandler,
-                              NULL, // stderr_data
-                              0, // stderr_max_length
-                              NULL, // exit_cb
-                              NULL, // exit_data
-                              NULL, // child pid
-                              &error
-                             )
-       )
-    {
-      if (error != NULL)
-      {
-        dialogs_show_msgbox(GTK_MESSAGE_ERROR, "Cannot run 'docker ps': %s", error->message);
-      }
-      else
-      {
-        dialogs_show_msgbox(GTK_MESSAGE_ERROR, "Cannot run 'docker ps'");
-      }
-      g_error_free(error);
+    gchar **tokens   = g_strsplit(line, " ", 2);
+    g_assert(tokens != NULL);
+    guint tokenCount = g_strv_length(tokens);
 
-      g_object_unref(attachDetachDockerContainerStore);
+    gtk_list_store_insert_with_values(listStore,
+                                      NULL,
+                                      -1,
+                                      MODEL_ATTACH_DOCKER_CONTAINER_ID,    (tokenCount >= 1) ? tokens[0] : "",
+                                      MODEL_ATTACH_DOCKER_CONTAINER_IMAGE, (tokenCount >= 2) ? tokens[1] : "",
+                                      MODEL_END
+                                     );
+    g_strfreev(tokens);
+  }
+}
 
-      return;
-    }
+/***********************************************************************\
+* Name   : attachDockerContainerDialog
+* Purpose: attach to docker container dialog
+* Input  : -
+* Output : -
+* Return : docker container id or NULL
+* Notes  : -
+\***********************************************************************/
 
-    // create dialog
+LOCAL gchar* attachDockerContainerDialog()
+{
+  gchar *dockerContainerId = NULL;
+
+  // get running docker containers
+  GtkListStore *dockerContainerStore = gtk_list_store_new(MODEL_ATTACH_DOCKER_CONTAINER_COUNT,
+                                                          G_TYPE_STRING,  // language
+                                                          G_TYPE_STRING  // group
+                                                         );
+  const gchar *workingDirectory = getWorkingDirectory(NULL);
+  g_assert(workingDirectory != NULL);
+  gchar errorMessage[256];
+  if (Execute_syncExecute("docker ps --format '{{.ID}} {{.Image}}'",
+                          workingDirectory,
+                          NULL, // dockerContainerId,
+                          CALLBACK(onDockerContainerListParse,dockerContainerStore),
+                          errorMessage,
+                          sizeof(errorMessage)
+                         )
+     )
+  {
+      // create dialog
+    GtkWidget *widgetContainerList;
+    GtkWidget *widgetOK;
     GtkWidget *dialog = gtk_dialog_new_with_buttons(_("Attach to docker container"),
                                                     GTK_WINDOW(geany_data->main_widgets->window),
                                                     GTK_DIALOG_DESTROY_WITH_PARENT,
@@ -3833,7 +4264,7 @@ NULL,//                            stderrHandler,
     gtk_window_set_default_size(GTK_WINDOW(dialog), 400, 200);
 
     widgetOK = gtk_dialog_add_button(GTK_DIALOG(dialog), _("_OK"), GTK_RESPONSE_ACCEPT);
-    g_object_set_data(G_OBJECT(dialog), "button_ok", widgetOK);
+    g_object_set_data(G_OBJECT(dialog), "ok", widgetOK);
     gtk_widget_set_sensitive(widgetOK, FALSE);
 
     GtkBox *vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
@@ -3842,20 +4273,15 @@ NULL,//                            stderrHandler,
     {
       // create scrolled build messages list
       GtkWidget *scrolledWindow = gtk_scrolled_window_new(NULL, NULL);
-  //    gtk_widget_set_hexpand(GTK_WIDGET(scrolledWindow), TRUE);
-  //    gtk_widget_set_vexpand(GTK_WIDGET(scrolledWindow), TRUE);
       gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolledWindow),
                                      GTK_POLICY_AUTOMATIC,
                                      GTK_POLICY_ALWAYS
                                     );
       {
-        widgetContainerList = gtk_tree_view_new_with_model(GTK_TREE_MODEL(attachDetachDockerContainerStore));
+        widgetContainerList = gtk_tree_view_new_with_model(GTK_TREE_MODEL(dockerContainerStore));
         gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(widgetContainerList), TRUE);
         gtk_tree_view_set_headers_clickable(GTK_TREE_VIEW(widgetContainerList), TRUE);
         gtk_tree_view_set_search_column(GTK_TREE_VIEW(widgetContainerList), MODEL_ATTACH_DOCKER_CONTAINER_IMAGE);
-//        gtk_tree_selection_set_mode(GTK_TREE_VIEW(widgetContainerList),GTK_SELECTION_SINGLE);
-//      gtk_widget_set_hexpand(GTK_WIDGET(widgetContainerList), TRUE);
-//      gtk_widget_set_vexpand(GTK_WIDGET(widgetContainerList), TRUE);
         gtk_tree_view_set_show_expanders(GTK_TREE_VIEW(widgetContainerList), TRUE);
         {
           GtkCellRenderer *textRenderer;
@@ -3887,14 +4313,14 @@ NULL,//                            stderrHandler,
                                 G_OBJECT(widgetContainerList),
                                 "cursor-changed",
                                 FALSE,
-                                G_CALLBACK(onAttachDockerContainerCursorChanged),
+                                G_CALLBACK(onDockerContainerDialogCursorChanged),
                                 widgetOK
                                );
           plugin_signal_connect(geany_plugin,
                                 G_OBJECT(widgetContainerList),
                                 "row-activated",
                                 FALSE,
-                                G_CALLBACK(onAttachDockerContainerRowActivated),
+                                G_CALLBACK(onDockerContainerDialogRowActivated),
                                 dialog
                                );
         }
@@ -3906,34 +4332,410 @@ NULL,//                            stderrHandler,
     gtk_widget_show_all(GTK_WIDGET(dialog));
 
     // run dialog
-    result = gtk_dialog_run(GTK_DIALOG(dialog));
-
-    if (result == GTK_RESPONSE_ACCEPT)
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT)
     {
       GtkTreeSelection *selection;
-      GtkTreeModel     *model;
-      GtkTreeIter      iterator;
+      GtkTreeModel     *treeModel;
+      GtkTreeIter      treeIterator;
 
       selection = gtk_tree_view_get_selection(GTK_TREE_VIEW(widgetContainerList));
-      if (gtk_tree_selection_get_selected(selection, &model, &iterator))
+      if (gtk_tree_selection_get_selected(selection, &treeModel, &treeIterator))
       {
-        if (pluginData.attachedDockerContainerId != NULL) g_free(pluginData.attachedDockerContainerId);
-        gtk_tree_model_get(model, &iterator, MODEL_ATTACH_DOCKER_CONTAINER_ID, &pluginData.attachedDockerContainerId, -1);
-
-        gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.attachDetachDockerContainer),_("Detach from docker container"));
+        gtk_tree_model_get(treeModel,
+                           &treeIterator,
+                           MODEL_ATTACH_DOCKER_CONTAINER_ID, &dockerContainerId,
+                           MODEL_END
+                          );
       }
     }
 
     // free resources
-    gtk_widget_destroy(GTK_WIDGET(dialog));
-    g_object_unref(attachDetachDockerContainerStore);
+    gtk_widget_destroy(dialog);
+    g_object_unref(dockerContainerStore);
   }
   else
   {
-    g_free(pluginData.attachedDockerContainerId);
-    pluginData.attachedDockerContainerId = NULL;
+    dialogs_show_msgbox(GTK_MESSAGE_ERROR, "Cannot run 'docker ps': %s", errorMessage);
+  }
+  g_free((gchar*)workingDirectory);
 
-    gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.attachDetachDockerContainer),_("Attach to docker container"));
+  return dockerContainerId;
+}
+
+/***********************************************************************\
+* Name   : onMenuItemDockerContainer
+* Purpose: callback on menu item attach/detach docker container
+* Input  : widget   - widget (unused)
+*          userData - user data (unused)
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onMenuItemDockerContainer(GtkWidget *widget,
+                                     gpointer  userData
+                                    )
+{
+  g_assert(geany_data != NULL);
+  g_assert(geany_data->main_widgets != NULL);
+
+  UNUSED_VARIABLE(widget);
+  UNUSED_VARIABLE(userData);
+
+  if (gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.dockerContainer)))
+  {
+    gchar *dockerContainerId = attachDockerContainerDialog();
+    if (dockerContainerId != NULL)
+    {
+      attachDockerContainer(dockerContainerId);
+    }
+    else
+    {
+      gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.dockerContainer),FALSE);
+    }
+  }
+  else
+  {
+    detachDockerContainer();
+  }
+
+  // update enable buttons/menu items
+  updateEnableToolbarButtons();
+  updateEnableToolbarMenuItems();
+}
+
+/***********************************************************************\
+* Name   : onRemoteDialogChanged
+* Purpose: called on dialog changes
+* Input  : widget   - widget (not used)
+*          userData - user data: dialog
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onRemoteDialogChanged(GtkWidget *widget,
+                                 gpointer  userData
+                                )
+{
+  GtkWidget *dialog = GTK_WIDGET(userData);
+  g_assert(dialog != NULL);
+
+  UNUSED_VARIABLE(widget);
+
+  GtkWidget *widgetHostName = g_object_get_data(G_OBJECT(dialog), "hostName");
+  g_assert(widgetHostName != NULL);
+  GtkWidget *widgetUserName = g_object_get_data(G_OBJECT(dialog), "userName");
+  g_assert(widgetUserName != NULL);
+  GtkWidget *widgetPublicKey = g_object_get_data(G_OBJECT(dialog), "publicKey");
+  g_assert(widgetPublicKey != NULL);
+  GtkWidget *widgetPrivateKey = g_object_get_data(G_OBJECT(dialog), "privateKey");
+  g_assert(widgetPrivateKey != NULL);
+  GtkWidget *widgetPassword = g_object_get_data(G_OBJECT(dialog), "password");
+  g_assert(widgetPassword != NULL);
+  GtkWidget *widgetOK = g_object_get_data(G_OBJECT(dialog), "ok");
+  g_assert(widgetOK != NULL);
+
+  gtk_widget_set_sensitive(widgetOK,
+                              !stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetHostName)))
+                           && !stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetUserName)))
+                           && (   (   !stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPublicKey)))
+                                   && !stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPrivateKey)))
+                                  )
+                               || !stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPassword)))
+                              )
+                          );
+}
+
+/***********************************************************************\
+* Name   : onMenuItemRemote
+* Purpose: callback on menu item connect remote
+* Input  : widget   - widget (unused)
+*          userData - user data (unused)
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onMenuItemRemote(GtkWidget *widget,
+                            gpointer  userData
+                           )
+{
+  GtkWidget *widgetHostName, *widgetHostPort;
+  GtkWidget *widgetUserName;
+  GtkWidget *widgetPublicKey, *widgetPrivateKey;
+  GtkWidget *widgetPassword;
+  GtkWidget *widgetOK;
+  gint      result;
+
+  g_assert(geany_data != NULL);
+  g_assert(geany_data->main_widgets != NULL);
+
+  UNUSED_VARIABLE(widget);
+  UNUSED_VARIABLE(userData);
+
+  if (gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.remote)))
+  {
+    // create dialog
+    GtkWidget *dialog = gtk_dialog_new_with_buttons(_("Connect remote"),
+                                                    GTK_WINDOW(geany_data->main_widgets->window),
+                                                    GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                    _("_Cancel"),
+                                                    GTK_RESPONSE_CANCEL,
+                                                    NULL
+                                                   );
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 500, 200);
+
+    widgetOK = gtk_dialog_add_button(GTK_DIALOG(dialog), _("_OK"), GTK_RESPONSE_ACCEPT);
+    g_object_set_data(G_OBJECT(dialog), "ok", widgetOK);
+    gtk_widget_set_sensitive(widgetOK, FALSE);
+
+    GtkBox *vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+    gtk_widget_set_margin_top(GTK_WIDGET(vbox), 6);
+    gtk_widget_set_margin_bottom(GTK_WIDGET(vbox), 6);
+    {
+      GtkGrid *grid = GTK_GRID(gtk_grid_new());
+      gtk_grid_set_row_spacing(GTK_GRID(grid), 6);
+      gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+      gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
+      {
+        addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Host name"), NULL));
+        addGrid(grid, 0, 1, 1, newEntry(&widgetHostName, G_OBJECT(dialog), "hostName", "Host name."));
+        addGrid(grid, 0, 2, 1, newSpinButton(&widgetHostPort, G_OBJECT(dialog), "hostPort", "Host port number.", 0, 65535));
+        addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("User name"), NULL));
+        addGrid(grid, 1, 1, 2, newEntry(&widgetUserName, G_OBJECT(dialog), "userName", "User login name."));
+        addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Public key"), NULL));
+        addGrid(grid, 2, 1, 2, newFileChooser(&widgetPublicKey, G_OBJECT(dialog), "publicKey", "User public key."));
+        addGrid(grid, 3, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Private key"), NULL));
+        addGrid(grid, 3, 1, 2, newFileChooser(&widgetPrivateKey, G_OBJECT(dialog), "privateKey", "User private key."));
+        addGrid(grid, 4, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Password"), NULL));
+        addGrid(grid, 4, 1, 2, newPasswordEntry(&widgetPassword, G_OBJECT(dialog), "password", "User login or private key password."));
+
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetHostName),
+                              "changed",
+                              FALSE,
+                              G_CALLBACK(onRemoteDialogChanged),
+                              dialog
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetHostName),
+                              "activate",
+                              FALSE,
+                              G_CALLBACK(onFocusNextWidget),
+                              widgetHostPort
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetHostPort),
+                              "changed",
+                              FALSE,
+                              G_CALLBACK(onRemoteDialogChanged),
+                              dialog
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetHostPort),
+                              "activate",
+                              FALSE,
+                              G_CALLBACK(onFocusNextWidget),
+                              widgetUserName
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetUserName),
+                              "changed",
+                              FALSE,
+                              G_CALLBACK(onRemoteDialogChanged),
+                              dialog
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetUserName),
+                              "activate",
+                              FALSE,
+                              G_CALLBACK(onFocusNextWidget),
+                              widgetPublicKey
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetPublicKey),
+                              "changed",
+                              FALSE,
+                              G_CALLBACK(onRemoteDialogChanged),
+                              dialog
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetPublicKey),
+                              "activate",
+                              FALSE,
+                              G_CALLBACK(onFocusNextWidget),
+                              widgetPrivateKey
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetPrivateKey),
+                              "changed",
+                              FALSE,
+                              G_CALLBACK(onRemoteDialogChanged),
+                              dialog
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetPrivateKey),
+                              "activate",
+                              FALSE,
+                              G_CALLBACK(onFocusNextWidget),
+                              widgetPassword
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetPassword),
+                              "changed",
+                              FALSE,
+                              G_CALLBACK(onRemoteDialogChanged),
+                              dialog
+                             );
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(widgetPassword),
+                              "activate",
+                              FALSE,
+                              G_CALLBACK(onFocusNextWidget),
+                              widgetOK
+                             );
+      }
+      addBox(GTK_BOX(vbox), FALSE, GTK_WIDGET(grid));
+    }
+    addBox(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(dialog))), TRUE, GTK_WIDGET(vbox));
+    gtk_widget_show_all(GTK_WIDGET(dialog));
+
+    // set data
+    gtk_entry_set_text(GTK_ENTRY(widgetHostName),pluginData.projectProperties.remote.hostName->str);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(widgetHostPort),(gdouble)pluginData.projectProperties.remote.hostPort);
+    gtk_entry_set_text(GTK_ENTRY(widgetUserName),pluginData.projectProperties.remote.userName->str);
+    gtk_entry_set_text(GTK_ENTRY(widgetPublicKey),pluginData.projectProperties.remote.publicKey->str);
+    gtk_entry_set_text(GTK_ENTRY(widgetPrivateKey),pluginData.projectProperties.remote.privateKey->str);
+    gtk_entry_set_text(GTK_ENTRY(widgetPassword),pluginData.projectProperties.remote.password->str);
+
+    // set focus
+    if      (stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetHostName))))
+    {
+      gtk_widget_grab_focus(widgetHostName);
+    }
+    else if (stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetUserName))))
+    {
+      gtk_widget_grab_focus(widgetUserName);
+    }
+    else if (   stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPublicKey)))
+             && stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPassword)))
+            )
+    {
+      gtk_widget_grab_focus(widgetPublicKey);
+    }
+    else if (   stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPrivateKey)))
+             && stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPassword)))
+            )
+    {
+      gtk_widget_grab_focus(widgetPrivateKey);
+    }
+    else
+    {
+      gtk_widget_grab_focus(widgetPassword);
+    }
+
+    // run dialog
+    result = gtk_dialog_run(GTK_DIALOG(dialog));
+    if (result == GTK_RESPONSE_ACCEPT)
+    {
+      // get remote data
+      g_string_assign(pluginData.projectProperties.remote.hostName,gtk_entry_get_text(GTK_ENTRY(widgetHostName)));
+      pluginData.projectProperties.remote.hostPort = (guint)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widgetHostPort));
+      g_string_assign(pluginData.projectProperties.remote.userName,gtk_entry_get_text(GTK_ENTRY(widgetUserName)));
+      g_string_assign(pluginData.projectProperties.remote.publicKey,gtk_entry_get_text(GTK_ENTRY(widgetPublicKey)));
+      g_string_assign(pluginData.projectProperties.remote.privateKey,gtk_entry_get_text(GTK_ENTRY(widgetPrivateKey)));
+      g_string_assign(pluginData.projectProperties.remote.password,gtk_entry_get_text(GTK_ENTRY(widgetPassword)));
+
+      if (pluginData.projectProperties.filePath != NULL)
+      {
+        // save configuration
+        GKeyFile *configuration = g_key_file_new();
+        g_key_file_load_from_file(configuration, pluginData.projectProperties.filePath, G_KEY_FILE_NONE, NULL);
+// TODO: use configurationSaveString/Integer
+        g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remoteHostName",  pluginData.projectProperties.remote.hostName->str);
+        g_key_file_set_integer(configuration, CONFIGURATION_GROUP_BUILDER, "remoteHostPort",  pluginData.projectProperties.remote.hostPort);
+        g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remoteUserName",  pluginData.projectProperties.remote.userName->str);
+        g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remotePulicKey",  pluginData.projectProperties.remote.publicKey->str);
+        g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remotePrivateKey",pluginData.projectProperties.remote.privateKey->str);
+
+// TODO: use g_key_file_save_to_file()?
+        gchar *configurationData = g_key_file_to_data(configuration, NULL, NULL);
+        utils_write_file(geany_data->app->project->file_name, configurationData);
+        g_free(configurationData);
+
+        g_key_file_free(configuration);
+      }
+
+      // connect to remote
+      gchar errorMessage[256];
+      if (Remote_connect(pluginData.projectProperties.remote.hostName->str,
+                         pluginData.projectProperties.remote.hostPort,
+                         pluginData.projectProperties.remote.userName->str,
+                         pluginData.projectProperties.remote.publicKey->str,
+                         pluginData.projectProperties.remote.privateKey->str,
+                         pluginData.projectProperties.remote.password->str,
+                         errorMessage,
+                         sizeof(errorMessage)
+                        )
+         )
+      {
+        gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.remote),_("Disconnect remote"));
+      }
+      else
+      {
+        GtkWidget *errorDialog = gtk_message_dialog_new(GTK_WINDOW(geany_data->main_widgets->window),
+                                                        GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                        GTK_MESSAGE_ERROR,
+                                                        GTK_BUTTONS_CLOSE,
+                                                        "Connect to %s:%d failed\n\nError: %s",
+                                                        pluginData.projectProperties.remote.hostName->str,
+                                                        pluginData.projectProperties.remote.hostPort,
+                                                        errorMessage
+                                                       );
+        gtk_dialog_run(GTK_DIALOG(errorDialog));
+        gtk_widget_destroy(errorDialog);
+
+        gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.remote),FALSE);
+      }
+
+      if (pluginData.attachedDockerContainerId != NULL)
+      {
+        GtkWidget *confirmDialog = gtk_message_dialog_new(GTK_WINDOW(geany_data->main_widgets->window),
+                                                          GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                          GTK_MESSAGE_QUESTION,
+                                                          GTK_BUTTONS_OK_CANCEL,
+                                                          "Attached to the docker container '%s'. Reattach on remote?",
+                                                          pluginData.attachedDockerContainerId
+                                                         );
+        result = gtk_dialog_run(GTK_DIALOG(confirmDialog));
+        if (result == GTK_RESPONSE_OK)
+        {
+          detachDockerContainer();
+
+          gchar *dockerContainerId = attachDockerContainerDialog();
+          if (dockerContainerId != NULL)
+          {
+            attachDockerContainer(dockerContainerId);
+          }
+        }
+        gtk_widget_destroy(confirmDialog);
+      }
+    }
+    else
+    {
+      gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.remote),FALSE);
+    }
+
+    // free resources
+    gtk_widget_destroy(dialog);
+  }
+  else
+  {
+    Remote_disconnect();
+
+    gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.remote),_("Connect remote"));
+    gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.remote),FALSE);
   }
 
   // update enable buttons/menu items
@@ -3944,19 +4746,20 @@ NULL,//                            stderrHandler,
 /***********************************************************************\
 * Name   : onMenuItemProjectPreferences
 * Purpose:
-* Input  : -
+* Input  : widget   - widget (unused)
+*          userData - user data (unused)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemProjectPreferences(GtkWidget *widget, gpointer data)
+LOCAL void onMenuItemProjectPreferences(GtkWidget *widget, gpointer userData)
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
 
   UNUSED_VARIABLE(widget);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   // request show plugin preferences tab
   pluginData.widgets.showProjectPropertiesTab = TRUE;
@@ -3976,10 +4779,10 @@ LOCAL void onMenuItemProjectPreferences(GtkWidget *widget, gpointer data)
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMenuItemConfiguration(GtkWidget *widget, gpointer data)
+LOCAL void onMenuItemConfiguration(GtkWidget *widget, gpointer userData)
 {
   UNUSED_VARIABLE(widget);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   plugin_show_configure(geany_plugin);
 }
@@ -4003,20 +4806,21 @@ LOCAL gboolean onMessageListSelectionChanged(gpointer data)
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
-  GtkTreeIter  treeIter;
-  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIter))
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
   {
-    gchar *messageTreePath;
+//    gchar *messageTreePath;
     gchar *directory, *filePath;
     gint  lineNumber, columnNumber;
     gtk_tree_model_get(treeModel,
-                       &treeIter,
-                       MODEL_ERROR_WARNING_TREE_PATH,     &messageTreePath,
-                       MODEL_MESSAGE_DIRECTORY,     &directory,
-                       MODEL_MESSAGE_FILE_PATH,     &filePath,
-                       MODEL_MESSAGE_LINE_NUMBER,   &lineNumber,
-                       MODEL_MESSAGE_COLUMN_NUMBER, &columnNumber,
-                       MODEL_MESSAGE_END
+                       &treeIterator,
+// TODO: remove
+//                       MODEL_ERROR_WARNING_TREE_PATH,&messageTreePath,
+                       MODEL_MESSAGE_DIRECTORY,      &directory,
+                       MODEL_MESSAGE_FILE_PATH,      &filePath,
+                       MODEL_MESSAGE_LINE_NUMBER,    &lineNumber,
+                       MODEL_MESSAGE_COLUMN_NUMBER,  &columnNumber,
+                       MODEL_END
                       );
     if (filePath != NULL)
     {
@@ -4024,7 +4828,7 @@ LOCAL gboolean onMessageListSelectionChanged(gpointer data)
     }
     g_free(filePath);
     g_free(directory);
-    g_free(messageTreePath);
+//    g_free(messageTreePath);
   }
 
   return FALSE;
@@ -4070,20 +4874,20 @@ LOCAL gboolean onMessageListButtonPress(GtkTreeView    *messageList,
                                      )
        )
     {
-      GtkTreeIter treeIter;
+      GtkTreeIter treeIterator;
       if (gtk_tree_model_get_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
-                                  &treeIter,
+                                  &treeIterator,
                                   pluginData.build.messagesTreePath
                                  )
          )
       {
         gchar *treePath;
         gtk_tree_model_get(GTK_TREE_MODEL(pluginData.build.messagesStore),
-                           &treeIter,
+                           &treeIterator,
                            MODEL_MESSAGE_TREE_PATH, &treePath,
-                           MODEL_MESSAGE_END
+                           MODEL_END
                           );
-        gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.editRegEx), !isStringEmpty(treePath));
+        gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.editRegex), !stringIsEmpty(treePath));
         g_free(treePath);
       }
 
@@ -4113,20 +4917,20 @@ LOCAL gboolean onErrorWarningTreeSelectionChanged(gpointer data)
   treeSelection = gtk_tree_view_get_selection(treeView);
 
   GtkTreeModel *treeModel;
-  GtkTreeIter  treeIter;
-  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIter))
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
   {
     gchar *messageTreePath;
     gchar *directory, *filePath;
     gint  lineNumber, columnNumber;
     gtk_tree_model_get(treeModel,
-                       &treeIter,
+                       &treeIterator,
                        MODEL_ERROR_WARNING_TREE_PATH,     &messageTreePath,
                        MODEL_ERROR_WARNING_DIRECTORY,     &directory,
                        MODEL_ERROR_WARNING_FILE_PATH,     &filePath,
                        MODEL_ERROR_WARNING_LINE_NUMBER,   &lineNumber,
                        MODEL_ERROR_WARNING_COLUMN_NUMBER, &columnNumber,
-                       MODEL_ERROR_WARNING_END
+                       MODEL_END
                       );
     if (messageTreePath != NULL)
     {
@@ -4134,6 +4938,7 @@ LOCAL gboolean onErrorWarningTreeSelectionChanged(gpointer data)
     }
     if (filePath != NULL)
     {
+      g_assert(directory);
       showSource(directory, filePath, lineNumber, columnNumber);
     }
     g_free(filePath);
@@ -4188,9 +4993,9 @@ LOCAL gboolean onErrorWarningTreeButtonPress(GtkTreeView    *treeView,
 \***********************************************************************/
 
 LOCAL gboolean onErrorWarningTreeKeyPress(GtkTreeView *treeView,
-                          GdkEventKey *eventKey,
-                          gpointer    data
-                         )
+                                          GdkEventKey *eventKey,
+                                          gpointer    data
+                                         )
 {
   g_assert(treeView != NULL);
   g_assert(eventKey != NULL);
@@ -4243,8 +5048,8 @@ LOCAL void onErrorWarningTreeDoubleClick(GtkTreeView       *treeView,
 
   GtkTreeModel *model = gtk_tree_view_get_model(treeView);
 
-  GtkTreeIter iter;
-  if (gtk_tree_model_get_iter(model, &iter, treePath))
+  GtkTreeIter treeIterator;
+  if (gtk_tree_model_get_iter(model, &treeIterator, treePath))
   {
     if (gtk_tree_view_row_expanded(treeView, treePath))
     {
@@ -4291,28 +5096,28 @@ LOCAL void onKeyBinding(guint keyId)
     switch (keyId)
     {
       case KEY_BINDING_PREV_ERROR:
-        if (pluginData.build.errorsTreeIterValid)
+        if (pluginData.build.errorsTreeIterorValid)
         {
           showPrevError();
         }
         break;
 
       case KEY_BINDING_NEXT_ERROR:
-        if (pluginData.build.errorsTreeIterValid)
+        if (pluginData.build.errorsTreeIterorValid)
         {
           showNextError();
         }
         break;
 
       case KEY_BINDING_PREV_WARNING:
-        if (pluginData.build.warningsTreeIterValid)
+        if (pluginData.build.warningsTreeIterorValid)
         {
           showPrevWarning();
         }
         break;
 
       case KEY_BINDING_NEXT_WARNING:
-        if (pluginData.build.warningsTreeIterValid)
+        if (pluginData.build.warningsTreeIterorValid)
         {
           showNextWarning();
         }
@@ -4339,35 +5144,46 @@ LOCAL void onKeyBinding(guint keyId)
 
 LOCAL void updateEnableToolbarButtons()
 {
-  gboolean isFirst = TRUE;
-  guint    i       = 0;
-  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
+  guint i = 0;
+  while ((i < MAX_COMMANDS) && (pluginData.widgets.buttons.commands[i] != NULL))
   {
-    Command *command = (Command*)commandNode->data;
-    g_assert(command != NULL);
+    GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "listStore"));
+    gchar        *iteratorString = (gchar*)g_object_get_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString");
+
+    gboolean enabled = FALSE;
+    if ((listStore != NULL) && (iteratorString != NULL))
+    {
+      GtkTreeIter treeIterator;
+      if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(listStore),
+                                              &treeIterator,
+                                              iteratorString
+                                             )
+         )
+      {
+        gboolean runInDockerContainer;
+        gboolean runRemote;
+        gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                           &treeIterator,
+                           MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
+                           MODEL_COMMAND_RUN_REMOTE,              &runRemote,
+                           MODEL_END
+                          );
+
+        enabled =    !runInDockerContainer
+                  || (pluginData.attachedDockerContainerId != NULL)
+                  || !runRemote
+// TODO:
+|| FALSE;//                  || (pluginData.remoteSession != NULL);
+      }
+    }
 
     gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.commands[i]),
-                                isFirst
-                             || !command->runInDockerContainer
-                             || (pluginData.attachedDockerContainerId != NULL)
+                             (i == 0) || enabled
                             );
-    isFirst = FALSE;
+
     i++;
   }
-  for (guint i = 0; i < MAX_COMMANDS; i++)
-  {
-    const Command *command = getProjectCommand(i);
-    if (command != NULL)
-    {
-      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]),
-                                  isFirst
-                               || !command->runInDockerContainer
-                               || (pluginData.attachedDockerContainerId != NULL)
-                              );
-      isFirst = FALSE;
-    i++;
-    }
-  }
+
   gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.abort), FALSE);
 }
 
@@ -4387,17 +5203,11 @@ LOCAL void updateToolbarButtons()
   {
     if (pluginData.widgets.buttons.commands[i] != NULL)
     {
+      gchar *commandIteratorString = g_object_get_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString");
       gtk_widget_destroy(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
+      g_free(commandIteratorString);
     }
     pluginData.widgets.buttons.commands[i] = NULL;
-  }
-  for (guint i = 0; i < MAX_COMMANDS; i++)
-  {
-    if (pluginData.widgets.buttons.projectCommands[i] != NULL)
-    {
-      gtk_widget_destroy(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]));
-    }
-    pluginData.widgets.buttons.projectCommands[i] = NULL;
   }
   if (pluginData.widgets.buttons.abort != NULL)
   {
@@ -4405,57 +5215,111 @@ LOCAL void updateToolbarButtons()
   }
   pluginData.widgets.buttons.abort = NULL;
 
-  gboolean isFirst = TRUE;
-  guint    i       = 0;
-  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
-  {
-    Command *command = (Command*)commandNode->data;
-    g_assert(command != NULL);
+  gboolean    isFirst = TRUE;
+  guint       i = 0;
+  GtkTreeIter treeIterator;
 
-    if (command->showButton)
-    {
-      pluginData.widgets.buttons.commands[i] = isFirst
-                                                 ? gtk_menu_tool_button_new(NULL, command->title)
-                                                 : gtk_tool_button_new(NULL, command->title);
-      plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
-      gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
-      plugin_signal_connect(geany_plugin,
-                            G_OBJECT(pluginData.widgets.buttons.commands[i]),
-                            "clicked",
-                            FALSE,
-                            G_CALLBACK(onMenuItemCommand),
-                            command
-                           );
-
-      isFirst = FALSE;
-      i++;
-    }
-  }
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  // command buttons
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(pluginData.configuration.commandStore), &treeIterator))
   {
-    const Command *command = getProjectCommand(i);
-    if (command != NULL)
+    do
     {
-      if (command->showButton)
+      gchar    *title;
+      gboolean showButton;
+      gtk_tree_model_get(GTK_TREE_MODEL(pluginData.configuration.commandStore),
+                         &treeIterator,
+                         MODEL_COMMAND_TITLE,       &title,
+                         MODEL_COMMAND_SHOW_BUTTON, &showButton,
+                         MODEL_END
+                        );
+      g_assert(title != NULL);
+
+      if (showButton)
       {
-        pluginData.widgets.buttons.projectCommands[i] = isFirst
-                                                          ? gtk_menu_tool_button_new(NULL, command->title)
-                                                          : gtk_tool_button_new(NULL, command->title);
-        plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.projectCommands[i]));
-        gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]));
-        plugin_signal_connect(geany_plugin,
-                              G_OBJECT(pluginData.widgets.buttons.projectCommands[i]),
-                              "clicked",
-                              FALSE,
-                              G_CALLBACK(onMenuItemProjectCommand),
-                              GUINT_TO_POINTER(i)
-                             );
+        if (i < MAX_COMMANDS)
+        {
+          gchar *commandIteratorString = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(pluginData.configuration.commandStore),&treeIterator);
 
-        isFirst = FALSE;
+          pluginData.widgets.buttons.commands[i] = isFirst
+                                                     ? gtk_menu_tool_button_new(NULL, title)
+                                                     : gtk_tool_button_new(NULL, title);
+          g_object_set_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "listStore", pluginData.configuration.commandStore);
+          g_object_set_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString", commandIteratorString);
+          plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
+          gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
+          plugin_signal_connect(geany_plugin,
+                                G_OBJECT(pluginData.widgets.buttons.commands[i]),
+                                "clicked",
+                                FALSE,
+                                G_CALLBACK(onExecuteCommand),
+                                NULL
+                               );
+
+          isFirst = FALSE;
+          i++;
+        }
       }
+
+      g_free(title);
     }
+    while (gtk_tree_model_iter_next(GTK_TREE_MODEL(pluginData.configuration.commandStore), &treeIterator));
   }
 
+  // project command buttons
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(pluginData.projectProperties.commandStore), &treeIterator))
+  {
+    do
+    {
+      gchar    *title;
+      gboolean showButton;
+      gtk_tree_model_get(GTK_TREE_MODEL(pluginData.projectProperties.commandStore),
+                         &treeIterator,
+                         MODEL_COMMAND_TITLE,       &title,
+                         MODEL_COMMAND_SHOW_BUTTON, &showButton,
+                         MODEL_END
+                        );
+      g_assert(title != NULL);
+
+      if (showButton)
+      {
+        if (i < MAX_COMMANDS)
+        {
+          gchar *commandIteratorString = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(pluginData.projectProperties.commandStore),&treeIterator);
+
+          pluginData.widgets.buttons.commands[i] = isFirst
+                                                     ? gtk_menu_tool_button_new(NULL, title)
+                                                     : gtk_tool_button_new(NULL, title);
+          g_object_set_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "listStore", pluginData.projectProperties.commandStore);
+          g_object_set_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString", commandIteratorString);
+          plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
+          gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
+          plugin_signal_connect(geany_plugin,
+                                G_OBJECT(pluginData.widgets.buttons.commands[i]),
+                                "clicked",
+                                FALSE,
+                                G_CALLBACK(onExecuteCommand),
+                                NULL
+                               );
+
+          isFirst = FALSE;
+          i++;
+        }
+      }
+
+      g_free(title);
+    }
+    while (gtk_tree_model_iter_next(GTK_TREE_MODEL(pluginData.projectProperties.commandStore), &treeIterator));
+  }
+
+  // add default button
+  if (i <= 0)
+  {
+    pluginData.widgets.buttons.commands[i] = gtk_menu_tool_button_new(NULL, _("Builder"));
+    plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
+    gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
+  }
+
+  // abort button
   if (pluginData.configuration.abortButton)
   {
     pluginData.widgets.buttons.abort = gtk_tool_button_new(NULL, _("Abort"));
@@ -4485,28 +5349,41 @@ LOCAL void updateToolbarButtons()
 LOCAL void updateEnableToolbarMenuItems()
 {
   guint i = 0;
-  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
+  while ((i < MAX_COMMANDS) && (pluginData.widgets.menuItems.commands[i] != NULL))
   {
-    Command *command = (Command*)commandNode->data;
-    g_assert(command != NULL);
+    GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "listStore"));
+    g_assert(listStore != NULL);
+    gchar        *iteratorString = (gchar*)g_object_get_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "iteratorString");
+    g_assert(iteratorString != NULL);
 
-    gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.commands[i]),
-                                !command->runInDockerContainer
-                             || (pluginData.attachedDockerContainerId != NULL)
-                            );
-    i++;
-  }
-  for (guint i = 0; i < MAX_COMMANDS; i++)
-  {
-    const Command *command = getProjectCommand(i);
-    if (command != NULL)
+    GtkTreeIter treeIterator;
+    if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(listStore),
+                                            &treeIterator,
+                                            iteratorString
+                                           )
+       )
     {
-      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.projectCommands[i]),
-                                  !command->runInDockerContainer
+      gboolean runInDockerContainer;
+      gboolean runRemote;
+      gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                         &treeIterator,
+                         MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
+                         MODEL_COMMAND_RUN_REMOTE,              &runRemote,
+                         MODEL_END
+                        );
+
+      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.commands[i]),
+                                  !runInDockerContainer
                                || (pluginData.attachedDockerContainerId != NULL)
+                               || !runRemote
+// TODO:
+//                               || (pluginData.remoteSession != NULL
                               );
     }
+
+    i++;
   }
+
   gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.abort), FALSE);
 }
 
@@ -4521,35 +5398,65 @@ LOCAL void updateEnableToolbarMenuItems()
 
 LOCAL void updateToolbarMenuItems()
 {
+  // discard menu items
+  for (guint i = 0; i < MAX_COMMANDS; i++)
+  {
+    pluginData.widgets.menuItems.commands[i] = NULL;
+  }
+
+  // create menu
   GtkWidget *menu = gtk_menu_new();
   {
     guint     i = 0;
     GtkWidget *menuItem;
 
-fprintf(stderr,"%s:%d: xxxxxxxxxxxxxxxxxxxxxx\n",__FILE__,__LINE__);
     // add command menu items
-    for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
+    GtkTreeIter treeIterator;
+    if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(pluginData.configuration.commandStore), &treeIterator))
     {
-      Command *command = (Command*)commandNode->data;
-      g_assert(command != NULL);
+      do
+      {
+        gchar    *title;
+        gboolean showMenuItem;
+        gtk_tree_model_get(GTK_TREE_MODEL(pluginData.configuration.commandStore),
+                           &treeIterator,
+                           MODEL_COMMAND_TITLE,          &title,
+                           MODEL_COMMAND_SHOW_MENU_ITEM, &showMenuItem,
+                           MODEL_END
+                          );
+        g_assert(title != NULL);
 
-      if (command->showMenuItem)
-      {
-        pluginData.widgets.menuItems.commands[i] = gtk_menu_item_new_with_mnemonic(command->title);
-        g_assert(pluginData.widgets.menuItems.commands[i] != NULL);
-        gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.commands[i]);
-        plugin_signal_connect(geany_plugin,
-                              G_OBJECT(pluginData.widgets.menuItems.commands[i]),
-                              "activate",
-                              FALSE,
-                              G_CALLBACK(onMenuItemCommand),
-                              GUINT_TO_POINTER(i)
-                             );
+        if (showMenuItem)
+        {
+          if (i < MAX_COMMANDS)
+          {
+            gchar *commandIteratorString = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(pluginData.configuration.commandStore),&treeIterator);
+
+            pluginData.widgets.menuItems.commands[i] = gtk_menu_item_new_with_mnemonic(title);
+            g_assert(pluginData.widgets.menuItems.commands[i] != NULL);
+            g_object_set_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "listStore", pluginData.configuration.commandStore);
+            if (pluginData.widgets.menuItems.commands[i] != NULL)
+            {
+              g_free(g_object_get_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "iteratorString"));
+            }
+            g_object_set_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "iteratorString", commandIteratorString);
+            gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.commands[i]);
+
+            plugin_signal_connect(geany_plugin,
+                                  G_OBJECT(pluginData.widgets.menuItems.commands[i]),
+                                  "activate",
+                                  FALSE,
+                                  G_CALLBACK(onExecuteCommand),
+                                  NULL
+                                 );
+
+            i++;
+          }
+        }
+
+        g_free(title);
       }
-      else
-      {
-        pluginData.widgets.menuItems.commands[i] = NULL;
-      }
+      while (gtk_tree_model_iter_next(GTK_TREE_MODEL(pluginData.configuration.commandStore), &treeIterator));
     }
 
     // add separator
@@ -4557,29 +5464,51 @@ fprintf(stderr,"%s:%d: xxxxxxxxxxxxxxxxxxxxxx\n",__FILE__,__LINE__);
     gtk_container_add(GTK_CONTAINER(menu), menuItem);
 
     // add project command menu items
-    for (guint i = 0; i < MAX_COMMANDS; i++)
+    if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(pluginData.projectProperties.commandStore), &treeIterator))
     {
-      const Command *command = getProjectCommand(i);
-      if (command != NULL)
+      do
       {
-        if (command->showMenuItem)
+        gchar    *title;
+        gboolean showMenuItem;
+        gtk_tree_model_get(GTK_TREE_MODEL(pluginData.projectProperties.commandStore),
+                           &treeIterator,
+                           MODEL_COMMAND_TITLE,          &title,
+                           MODEL_COMMAND_SHOW_MENU_ITEM, &showMenuItem,
+                           MODEL_END
+                          );
+        g_assert(title != NULL);
+
+        if (showMenuItem)
         {
-          pluginData.widgets.menuItems.projectCommands[i] = gtk_menu_item_new_with_mnemonic(command->title);
-          g_assert(pluginData.widgets.menuItems.projectCommands[i] != NULL);
-          gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.projectCommands[i]);
-          plugin_signal_connect(geany_plugin,
-                                G_OBJECT(pluginData.widgets.menuItems.projectCommands[i]),
-                                "activate",
-                                FALSE,
-                                G_CALLBACK(onMenuItemProjectCommand),
-                                GUINT_TO_POINTER(i)
-                               );
+          if (i < MAX_COMMANDS)
+          {
+            gchar *commandIteratorString = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(pluginData.projectProperties.commandStore),&treeIterator);
+
+            pluginData.widgets.menuItems.commands[i] = gtk_menu_item_new_with_mnemonic(title);
+            g_assert(pluginData.widgets.menuItems.commands[i] != NULL);
+            g_object_set_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "listStore", pluginData.projectProperties.commandStore);
+            if (pluginData.widgets.menuItems.commands[i] != NULL)
+            {
+              g_free(g_object_get_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "iteratorString"));
+            }
+            g_object_set_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "iteratorString", commandIteratorString);
+            gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.commands[i]);
+
+            plugin_signal_connect(geany_plugin,
+                                  G_OBJECT(pluginData.widgets.menuItems.commands[i]),
+                                  "activate",
+                                  FALSE,
+                                  G_CALLBACK(onExecuteCommand),
+                                  NULL
+                                 );
+
+            i++;
+          }
         }
-        else
-        {
-          pluginData.widgets.menuItems.projectCommands[i] = NULL;
-        }
+
+        g_free(title);
       }
+      while (gtk_tree_model_iter_next(GTK_TREE_MODEL(pluginData.projectProperties.commandStore), &treeIterator));
     }
 
     // add separator
@@ -4643,30 +5572,28 @@ fprintf(stderr,"%s:%d: xxxxxxxxxxxxxxxxxxxxxx\n",__FILE__,__LINE__);
     menuItem = gtk_separator_menu_item_new();
     gtk_container_add(GTK_CONTAINER(menu), menuItem);
 
-    pluginData.widgets.menuItems.attachDetachDockerContainer = gtk_menu_item_new_with_label(_("Attach to docker container"));
-    gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.attachDetachDockerContainer);
+    pluginData.widgets.menuItems.dockerContainer = gtk_check_menu_item_new_with_label(_("Attach to docker container"));
+    gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.dockerContainer);
     plugin_signal_connect(geany_plugin,
-                          G_OBJECT(pluginData.widgets.menuItems.attachDetachDockerContainer),
+                          G_OBJECT(pluginData.widgets.menuItems.dockerContainer),
                           "activate",
                           FALSE,
-                          G_CALLBACK(onMenuItemAttachDetachDockerContainer),
+                          G_CALLBACK(onMenuItemDockerContainer),
+                          NULL
+                         );
+
+    pluginData.widgets.menuItems.remote = gtk_check_menu_item_new_with_label(_("Connect remote"));
+    gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.remote);
+    plugin_signal_connect(geany_plugin,
+                          G_OBJECT(pluginData.widgets.menuItems.remote),
+                          "activate",
+                          FALSE,
+                          G_CALLBACK(onMenuItemRemote),
                           NULL
                          );
 
     menuItem = gtk_separator_menu_item_new();
     gtk_container_add(GTK_CONTAINER(menu), menuItem);
-
-#if 0
-    pluginData.widgets.menuItems.run = gtk_menu_item_new_with_mnemonic(_("_Run"));
-    gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.run);
-    plugin_signal_connect(geany_plugin,
-                          G_OBJECT(pluginData.widgets.menuItems.run),
-                          "activate",
-                          FALSE,
-                          G_CALLBACK(onMenuItemRun),
-                          NULL
-                         );
-#endif
 
     pluginData.widgets.menuItems.projectProperties = gtk_menu_item_new_with_label(_("Project properties"));
     gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.projectProperties);
@@ -4677,6 +5604,7 @@ fprintf(stderr,"%s:%d: xxxxxxxxxxxxxxxxxxxxxx\n",__FILE__,__LINE__);
                           G_CALLBACK(onMenuItemProjectPreferences),
                           NULL
                          );
+    gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.projectProperties), geany_data->app->project != NULL);
 
     pluginData.widgets.menuItems.configuration = gtk_menu_item_new_with_label(_("Configuration"));
     gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.configuration);
@@ -4746,21 +5674,22 @@ LOCAL void onMessageListAddRegEx(GtkWidget *widget, GdkEventButton *eventButton,
   UNUSED_VARIABLE(eventButton);
   UNUSED_VARIABLE(data);
 
-  GtkTreeIter treeIter;
+  GtkTreeIter treeIterator;
   if (gtk_tree_model_get_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
-                              &treeIter,
+                              &treeIterator,
                               pluginData.build.messagesTreePath
                              )
      )
   {
     gchar *message;
     gtk_tree_model_get(GTK_TREE_MODEL(pluginData.build.messagesStore),
-                       &treeIter,
+                       &treeIterator,
                        MODEL_MESSAGE_MESSAGE, &message,
-                       MODEL_MESSAGE_END
+                       MODEL_END
                       );
+    g_assert(message != NULL);
 
-    addRegEx(message);
+    addRegex(message);
 
     g_free(message);
 
@@ -4785,9 +5714,9 @@ LOCAL void onMessageListEditRegEx(GtkWidget *widget, GdkEventButton *eventButton
   UNUSED_VARIABLE(eventButton);
   UNUSED_VARIABLE(data);
 
-  GtkTreeIter treeIter;
+  GtkTreeIter treeIterator;
   if (gtk_tree_model_get_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
-                              &treeIter,
+                              &treeIterator,
                               pluginData.build.messagesTreePath
                              )
      )
@@ -4795,19 +5724,21 @@ LOCAL void onMessageListEditRegEx(GtkWidget *widget, GdkEventButton *eventButton
     gchar *treePath;
     gchar *message;
     gtk_tree_model_get(GTK_TREE_MODEL(pluginData.build.messagesStore),
-                       &treeIter,
+                       &treeIterator,
                        MODEL_MESSAGE_TREE_PATH, &treePath,
                        MODEL_MESSAGE_MESSAGE,   &message,
-                       MODEL_MESSAGE_END
+                       MODEL_END
                       );
+    g_assert(treePath != NULL);
+    g_assert(message != NULL);
 
     if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(pluginData.configuration.regexStore),
-                                            &treeIter,
+                                            &treeIterator,
                                             treePath
                                            )
        )
     {
-      editRegEx(GTK_TREE_MODEL(pluginData.configuration.regexStore), &treeIter, message);
+      editRegex(pluginData.configuration.regexStore, &treeIterator, message);
     }
 
     g_free(message);
@@ -4843,7 +5774,7 @@ LOCAL void  errorWarningTreeViewCellRendererInteger(GtkTreeViewColumn *column,
   g_assert(treeIter != NULL);
 
   gint n;
-  gtk_tree_model_get(treeModel, treeIter, i, &n, -1);
+  gtk_tree_model_get(treeModel, treeIter, i, &n, MODEL_END);
   if (n > 0)
   {
     gchar buffer[64];
@@ -4926,6 +5857,152 @@ LOCAL GtkWidget *newErrorWarningTreeView()
 }
 
 /***********************************************************************\
+* Name   : onConfigureDoubleClickCommand
+* Purpose: handle double-click: edit selected regular expression
+* Input  : treeView - tree view
+*          treePath - tree path (not used)
+*          column   - tree column (not used)
+*          data     - data (not used)
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onConfigureDoubleClickCommand(GtkTreeView       *treeView,
+                                         GtkTreePath       *treePath,
+                                         GtkTreeViewColumn *column,
+                                         gpointer           data
+                                        )
+{
+  UNUSED_VARIABLE(treePath);
+  UNUSED_VARIABLE(column);
+  UNUSED_VARIABLE(data);
+
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
+  g_assert(treeSelection != NULL);
+
+  GtkTreeModel *treeModel;
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
+  {
+    editCommand(GTK_LIST_STORE(treeModel),
+                &treeIterator
+               );
+  }
+}
+
+/***********************************************************************\
+* Name   : onConfigureAddCommand
+* Purpose: add command
+* Input  : widget      - widget (not used)
+*          eventButton - event button (not used)
+*          data        - user data (not used)
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onConfigureAddCommand(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+{
+  UNUSED_VARIABLE(widget);
+  UNUSED_VARIABLE(eventButton);
+
+  GtkListStore *listStore = GTK_LIST_STORE(data);
+  g_assert(listStore != NULL);
+
+  addCommand(listStore);
+}
+
+/***********************************************************************\
+* Name   : onConfigureCloneCommand
+* Purpose: clone command
+* Input  : widget      - widget (not used)
+*          eventButton - event button (not used)
+*          data        - list view widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onConfigureCloneCommand(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+{
+  UNUSED_VARIABLE(widget);
+  UNUSED_VARIABLE(eventButton);
+
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  g_assert(treeSelection != NULL);
+
+  GtkTreeModel *treeModel;
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
+  {
+    g_assert(treeModel != NULL);
+    cloneCommand(GTK_LIST_STORE(treeModel),
+                 &treeIterator
+                );
+  }
+}
+
+/***********************************************************************\
+* Name   : onConfigureEditCommand
+* Purpose: edit command
+* Input  : widget      - widget (not used)
+*          eventButton - event button (not used)
+*          data        - list view widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onConfigureEditCommand(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+{
+  UNUSED_VARIABLE(widget);
+  UNUSED_VARIABLE(eventButton);
+  UNUSED_VARIABLE(data);
+
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  g_assert(treeSelection != NULL);
+
+  GtkTreeModel *treeModel;
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
+  {
+    g_assert(treeModel != NULL);
+    editCommand(GTK_LIST_STORE(treeModel),
+                &treeIterator
+               );
+  }
+}
+
+/***********************************************************************\
+* Name   : onConfigureRemoveCommand
+* Purpose: remove command
+* Input  : widget      - widget (not used)
+*          eventButton - event button (not used)
+*          data        - list view widget
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onConfigureRemoveCommand(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+{
+  UNUSED_VARIABLE(widget);
+  UNUSED_VARIABLE(eventButton);
+
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  g_assert(treeSelection != NULL);
+
+  GtkTreeModel *treeModel;
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
+  {
+    g_assert(treeModel != NULL);
+    gtk_list_store_remove(GTK_LIST_STORE(treeModel), &treeIterator);
+  }
+}
+
+/***********************************************************************\
 * Name   : onConfigureDoubleClickRegEx
 * Purpose: handle double-click: edit selected regular expression
 * Input  : treeView - tree view
@@ -4951,11 +6028,12 @@ LOCAL void onConfigureDoubleClickRegEx(GtkTreeView       *treeView,
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
-  GtkTreeIter  treeIter;
-  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIter))
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
   {
-    editRegEx(treeModel,
-              &treeIter,
+    g_assert(treeModel != NULL);
+    editRegex(GTK_LIST_STORE(treeModel),
+              &treeIterator,
               ""
              );
   }
@@ -4978,7 +6056,10 @@ LOCAL void onConfigureAddRegEx(GtkWidget *widget, GdkEventButton *eventButton, g
   UNUSED_VARIABLE(eventButton);
   UNUSED_VARIABLE(data);
 
-  addRegEx("");
+// TODO: list store
+fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
+
+  addRegex("");
 }
 
 /***********************************************************************\
@@ -5001,11 +6082,11 @@ LOCAL void onConfigureCloneRegEx(GtkWidget *widget, GdkEventButton *eventButton,
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
-  GtkTreeIter  treeIter;
-  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIter))
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
   {
-    cloneRegEx(treeModel,
-               &treeIter,
+    cloneRegex(GTK_LIST_STORE(treeModel),
+               &treeIterator,
                ""
               );
   }
@@ -5031,11 +6112,11 @@ LOCAL void onConfigureEditRegEx(GtkWidget *widget, GdkEventButton *eventButton, 
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
-  GtkTreeIter  treeIter;
-  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIter))
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
   {
-    editRegEx(treeModel,
-              &treeIter,
+    editRegex(GTK_LIST_STORE(treeModel),
+              &treeIterator,
               ""
              );
   }
@@ -5060,11 +6141,11 @@ LOCAL void onConfigureRemoveRegEx(GtkWidget *widget, GdkEventButton *eventButton
   GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
   g_assert(treeSelection != NULL);
 
-  GtkTreeModel     *model;
-  GtkTreeIter      iter;
-  if (gtk_tree_selection_get_selected(treeSelection, &model, &iter))
+  GtkTreeModel *treeModel;
+  GtkTreeIter  treeIterator;
+  if (gtk_tree_selection_get_selected(treeSelection, &treeModel, &treeIterator))
   {
-    gtk_list_store_remove(pluginData.configuration.regexStore, &iter);
+    gtk_list_store_remove(GTK_LIST_STORE(treeModel), &treeIterator);
   }
 }
 
@@ -5121,10 +6202,10 @@ LOCAL void initTab(GeanyPlugin *plugin)
         {
           GtkWidget *menuItem;
 
-          pluginData.widgets.menuItems.editRegEx = gtk_menu_item_new_with_label("edit regular expression");
-          gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.editRegEx);
+          pluginData.widgets.menuItems.editRegex = gtk_menu_item_new_with_label("edit regular expression");
+          gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.editRegex);
           plugin_signal_connect(geany_plugin,
-                                G_OBJECT(pluginData.widgets.menuItems.editRegEx),
+                                G_OBJECT(pluginData.widgets.menuItems.editRegex),
                                 "activate",
                                 FALSE,
                                 G_CALLBACK(onMessageListEditRegEx),
@@ -5294,8 +6375,8 @@ LOCAL void initKeyBinding(GeanyPlugin *plugin)
   {
     gchar name[64],title[64];
 
-    g_snprintf(name,sizeof(name),"command%d",i);
-    g_snprintf(title,sizeof(title),"Command %d",i);
+    g_snprintf(name,sizeof(name),"command%u",i);
+    g_snprintf(title,sizeof(title),"Command %u",i);
     keybindings_set_item(keyGroup,
                          KEY_BINDING_COMMAND+i,
                          onKeyBinding,
@@ -5391,8 +6472,6 @@ LOCAL void doneTab(GeanyPlugin *plugin)
                           );
 }
 
-// // TODO: still no used
-#if 0
 /***********************************************************************\
 * Name   : dialogRegexTypeCellRenderer
 * Purpose: render regex type column
@@ -5400,7 +6479,7 @@ LOCAL void doneTab(GeanyPlugin *plugin)
 *          cellRenderer - cell renderer
 *          treeModel    - tree data model
 *          treeIter     - tree entry iterator
-*          data         - user data (not used)
+*          data         - model index
 * Output : -
 * Return : -
 * Notes  : -
@@ -5413,7 +6492,7 @@ LOCAL void  configureCellRendererBoolean(GtkTreeViewColumn *cellLayout,
                                          gpointer         data
                                         )
 {
-  gint modelIndex = (gint)(intptr_t)data;
+  guint modelIndex = GPOINTER_TO_UINT(data);
 
   g_assert(cellLayout != NULL);
   g_assert(cellRenderer != NULL);
@@ -5422,15 +6501,14 @@ LOCAL void  configureCellRendererBoolean(GtkTreeViewColumn *cellLayout,
 
   UNUSED_VARIABLE(data);
 
-  gboolean value;
-  gtk_tree_model_get(treeModel, treeIter, modelIndex, &value, -1);
-  g_object_set(cellRenderer, "text", value ? "yes" : "no", NULL);
+  gboolean value = FALSE;
+  gtk_tree_model_get(treeModel, treeIter, modelIndex, &value, MODEL_END);
+  g_object_set(cellRenderer, "text", value ? "\u2713" : "-", NULL);
 }
-#endif
 
 /***********************************************************************\
-* Name   : configureCellRendererType
-* Purpose: render cell 'type'
+* Name   : configureCellRendererRegexType
+* Purpose: render cell 'regular expression type'
 * Input  : column       - column (not used)
 *          cellRenderer - cell renderer
 *          treeModel    - model
@@ -5441,12 +6519,12 @@ LOCAL void  configureCellRendererBoolean(GtkTreeViewColumn *cellLayout,
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void configureCellRendererType(GtkTreeViewColumn *column,
-                                     GtkCellRenderer   *cellRenderer,
-                                     GtkTreeModel      *treeModel,
-                                     GtkTreeIter       *treeIter,
-                                     gpointer          data
-                                    )
+LOCAL void configureCellRendererRegexType(GtkTreeViewColumn *column,
+                                          GtkCellRenderer   *cellRenderer,
+                                          GtkTreeModel      *treeModel,
+                                          GtkTreeIter       *treeIter,
+                                          gpointer          data
+                                         )
 {
   RegexTypes regexType;
 
@@ -5456,7 +6534,11 @@ LOCAL void configureCellRendererType(GtkTreeViewColumn *column,
   g_assert(treeModel != NULL);
   g_assert(treeIter != NULL);
 
-  gtk_tree_model_get(treeModel, treeIter, MODEL_REGEX_TYPE, &regexType, -1);
+  gtk_tree_model_get(treeModel,
+                     treeIter,
+                     MODEL_REGEX_TYPE, &regexType,
+                     MODEL_END
+                    );
   g_assert(regexType >= REGEX_TYPE_MIN);
   g_assert(regexType <= REGEX_TYPE_MAX);
   g_object_set(cellRenderer, "text", REGEX_TYPE_STRINGS[regexType], NULL);
@@ -5483,39 +6565,6 @@ LOCAL void onConfigureResponse(GtkDialog *dialog, gint response, gpointer data)
      )
   {
     return;
-  }
-
-  // update commands
-  gboolean isFirst = TRUE;
-  for (guint i = 0; i < MAX_COMMANDS; i++)
-  {
-    char titleName[64],commandLineName[64],workingDirectoryName[64],showButtonName[64],showMenuItemName[64],inputCustomTextName[64],runInDockerContainerName[64],parseOutputName[64];
-
-    g_snprintf(titleName,sizeof(titleName),"command_title%d",i);
-    g_snprintf(commandLineName,sizeof(commandLineName),"command_command_line%d",i);
-    g_snprintf(workingDirectoryName,sizeof(workingDirectoryName),"command_working_directory%d",i);
-    g_snprintf(showButtonName,sizeof(showButtonName),"command_show_button%d",i);
-    g_snprintf(showMenuItemName,sizeof(showMenuItemName),"command_show_menu_item%d",i);
-    g_snprintf(inputCustomTextName,sizeof(inputCustomTextName),"command_input_custom_text%d",i);
-    g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
-    g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
-
-fprintf(stderr,"%s:%d: \n",__FILE__,__LINE__);
-// TODO:
-#if 0
-    setCommand(&pluginData.configuration.commands[i],
-               gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), titleName))),
-               gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), commandLineName))),
-               gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), workingDirectoryName))),
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), showButtonName))) || isFirst,
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), showMenuItemName))),
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), inputCustomTextName))),
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), runInDockerContainerName))),
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), parseOutputName)))
-              );
-#endif
-
-    isFirst = FALSE;
   }
 
   // update values
@@ -5574,46 +6623,173 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
     gtk_grid_set_row_spacing(grid, 6);
     gtk_grid_set_column_spacing(grid, 12);
     g_object_set(grid, "margin", 6, NULL);
-    gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
+    GtkBox *vbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
+    gtk_widget_set_margin_top(GTK_WIDGET(vbox), 6);
     {
-      gboolean isFirst = TRUE;
-      for (guint i = 0; i < MAX_COMMANDS; i++)
+      GtkWidget *treeView;
+
+      GtkWidget *scrolledWindow = gtk_scrolled_window_new(NULL, NULL);
+      gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolledWindow),
+                                     GTK_POLICY_AUTOMATIC,
+                                     GTK_POLICY_ALWAYS
+                                    );
       {
-        char titleName[64],commandLineName[64],workingDirectoryName[64],showButtonName[64],showMenuItemName[64],inputCustomTextName[64],runInDockerContainerName[64],parseOutputName[64];
+        treeView = gtk_tree_view_new();
+        gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(treeView), TRUE);
+        {
+          GtkCellRenderer   *cellRenderer;
+          GtkTreeViewColumn *column;
 
-        g_snprintf(titleName,sizeof(titleName),"command_title%d",i);
-        g_snprintf(commandLineName,sizeof(commandLineName),"command_command_line%d",i);
-        g_snprintf(workingDirectoryName,sizeof(workingDirectoryName),"command_working_directory%d",i);
-        g_snprintf(showButtonName,sizeof(showButtonName),"command_show_button%d",i);
-        g_snprintf(showMenuItemName,sizeof(showMenuItemName),"command_show_menu_item%d",i);
-        g_snprintf(inputCustomTextName,sizeof(inputCustomTextName),"command_input_custom_text%d",i);
-        g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
-        g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("Title",cellRenderer,"text", MODEL_COMMAND_TITLE, NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_TITLE);
+          gtk_tree_view_column_set_resizable(column, TRUE);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
 
-        addGrid(grid, i, 0, 1, newEntry(G_OBJECT(dialog), titleName, "Command title."));
-        addGrid(grid, i, 1, 1, newEntry(G_OBJECT(dialog), commandLineName, "Command line."));
-        addGrid(grid, i, 2, 1, newWorkingDirectoryChooser(G_OBJECT(dialog), workingDirectoryName, "Working directory for command."));
-        GtkWidget *button = addGrid(grid, i, 3, 1, newCheckButton(G_OBJECT(dialog), showButtonName, NULL, "Show button in toolbar."));
-        if (isFirst) gtk_widget_set_sensitive(button,FALSE);
-        addGrid(grid, i, 4, 1, newCheckButton(G_OBJECT(dialog), showMenuItemName, NULL, "Show menu item."));
-        addGrid(grid, i, 5, 1, newCheckButton(G_OBJECT(dialog), inputCustomTextName, NULL, "Input custom text."));
-        addGrid(grid, i, 6, 1, newCheckButton(G_OBJECT(dialog), runInDockerContainerName, NULL, "Run in docker container."));
-        addGrid(grid, i, 7, 1, newCheckButton(G_OBJECT(dialog), parseOutputName, NULL, "Parse output for errors/warnings."));
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("Command",cellRenderer,"text", MODEL_COMMAND_COMMAND_LINE, NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_COMMAND_LINE);
+          gtk_tree_view_column_set_resizable(column, TRUE);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
 
-        isFirst = FALSE;
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("Directory",cellRenderer,"text", MODEL_COMMAND_WORKING_DIRECTORY, NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_WORKING_DIRECTORY);
+          gtk_tree_view_column_set_resizable(column, TRUE);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("B",cellRenderer,"text", MODEL_COMMAND_SHOW_BUTTON, NULL);
+          gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_SHOW_BUTTON), NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_SHOW_BUTTON);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("M",cellRenderer,"text", MODEL_COMMAND_SHOW_MENU_ITEM, NULL);
+          gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_SHOW_MENU_ITEM), NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_SHOW_MENU_ITEM);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("C",cellRenderer,"text", MODEL_COMMAND_INPUT_CUSTOM_TEXT, NULL);
+          gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_INPUT_CUSTOM_TEXT), NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_INPUT_CUSTOM_TEXT);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("D",cellRenderer,"text", MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, NULL);
+          gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER), NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("R",cellRenderer,"text", MODEL_COMMAND_RUN_REMOTE, NULL);
+          gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_RUN_REMOTE), NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_RUN_REMOTE);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+          cellRenderer = gtk_cell_renderer_text_new();
+          column = gtk_tree_view_column_new_with_attributes("P",cellRenderer,"text", MODEL_COMMAND_PARSE_OUTPUT, NULL);
+          gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_PARSE_OUTPUT), NULL);
+          gtk_tree_view_column_set_sort_indicator(column, FALSE);
+          gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_PARSE_OUTPUT);
+          gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+          gtk_tree_view_set_model(GTK_TREE_VIEW(treeView),
+                                  GTK_TREE_MODEL(pluginData.configuration.commandStore)
+                                 );
+
+          plugin_signal_connect(geany_plugin,
+                                G_OBJECT(treeView),
+                                "row-activated",
+                                FALSE,
+                                G_CALLBACK(onConfigureDoubleClickCommand),
+                                NULL
+                               );
+        }
+        gtk_container_add(GTK_CONTAINER(scrolledWindow), treeView);
       }
+      addBox(vbox, TRUE, scrolledWindow);
+
+      GtkBox *hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12));
+      g_object_set(hbox, "margin", 6, NULL);
+      {
+        GtkWidget *button;
+        GtkWidget *image;
+
+        button = gtk_button_new_with_label(_("Add"));
+        image = gtk_image_new();
+        gtk_image_set_from_icon_name(GTK_IMAGE(image), "list-add", GTK_ICON_SIZE_BUTTON);
+        gtk_button_set_image(GTK_BUTTON(button), image);
+        addBox(hbox, FALSE, button);
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(button),
+                              "button-press-event",
+                              FALSE,
+                              G_CALLBACK(onConfigureAddCommand),
+                              pluginData.configuration.commandStore
+                             );
+
+        button = gtk_button_new_with_label(_("Clone"));
+        image = gtk_image_new();
+        gtk_image_set_from_icon_name(GTK_IMAGE(image), "edit-copy", GTK_ICON_SIZE_BUTTON);
+        gtk_button_set_image(GTK_BUTTON(button), image);
+        addBox(hbox, FALSE, button);
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(button),
+                              "button-press-event",
+                              FALSE,
+                              G_CALLBACK(onConfigureCloneCommand),
+                              treeView
+                             );
+
+        button = gtk_button_new_with_label(_("Edit"));
+        image = gtk_image_new();
+        gtk_image_set_from_icon_name(GTK_IMAGE(image), "edit-paste", GTK_ICON_SIZE_BUTTON);
+        gtk_button_set_image(GTK_BUTTON(button), image);
+        addBox(hbox, FALSE, button);
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(button),
+                              "button-press-event",
+                              FALSE,
+                              G_CALLBACK(onConfigureEditCommand),
+                              treeView
+                             );
+
+        button = gtk_button_new_with_label(_("Remove"));
+        image = gtk_image_new();
+        gtk_image_set_from_icon_name(GTK_IMAGE(image), "list-remove", GTK_ICON_SIZE_BUTTON);
+        gtk_button_set_image(GTK_BUTTON(button), image);
+        addBox(hbox, FALSE, button);
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(button),
+                              "button-press-event",
+                              FALSE,
+                              G_CALLBACK(onConfigureRemoveCommand),
+                              treeView
+                             );
+      }
+      addBox(vbox, FALSE, GTK_WIDGET(hbox));
     }
-    addBox(GTK_BOX(tab), FALSE, GTK_WIDGET(grid));
+    addBox(GTK_BOX(tab), TRUE, GTK_WIDGET(vbox));
 
     GtkBox *hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12));
     gtk_widget_set_margin_start(GTK_WIDGET(hbox), 6);
     {
       addBox(hbox, FALSE, gtk_label_new("Indicator colors: "));
 
-      addBox(hbox, FALSE, newCheckButton(G_OBJECT(dialog),  "error_indicators", "errors", "Show error indicators."));
-      addBox(hbox, FALSE, newColorChooser(G_OBJECT(dialog), "error_indicator_color", "Error indicator color."));
-      addBox(hbox, FALSE, newCheckButton(G_OBJECT(dialog),  "warning_indicators", "warnings", "Show warning indicators."));
-      addBox(hbox, FALSE, newColorChooser(G_OBJECT(dialog), "warning_indicator_color", "Warning indicator color."));
+      addBox(hbox, FALSE, newCheckButton (NULL, G_OBJECT(dialog), "error_indicators",        "errors", "Show error indicators."));
+      addBox(hbox, FALSE, newColorChooser(NULL, G_OBJECT(dialog), "error_indicator_color",   "Error indicator color."));
+      addBox(hbox, FALSE, newCheckButton (NULL, G_OBJECT(dialog), "warning_indicators",      "warnings", "Show warning indicators."));
+      addBox(hbox, FALSE, newColorChooser(NULL, G_OBJECT(dialog), "warning_indicator_color", "Warning indicator color."));
     }
     addBox(GTK_BOX(tab), FALSE, GTK_WIDGET(hbox));
 
@@ -5622,11 +6798,11 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
     gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
     gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
     {
-      addGrid(grid, 0, 0, 1, newCheckButton(G_OBJECT(dialog), "abort_button",             "Abort button", "Show abort button."));
-      addGrid(grid, 1, 0, 1, newCheckButton(G_OBJECT(dialog), "auto_save_all",            "Auto save all", "Auto save all before build is started."));
-      addGrid(grid, 2, 0, 1, newCheckButton(G_OBJECT(dialog), "add_project_regex_results","Add results of project regular expressions","Add results of project defined regular expression. If disabled only project regular expressions - if defined - are used only to detect errors or warnings."));
-      addGrid(grid, 3, 0, 1, newCheckButton(G_OBJECT(dialog), "auto_show_first_error",    "Show first error", "Auto show first error after build is done."));
-      addGrid(grid, 4, 0, 1, newCheckButton(G_OBJECT(dialog), "auto_show_first_warning",  "Show first warning", "Auto show first warning after build is done without errors."));
+      addGrid(grid, 0, 0, 1, newCheckButton(NULL, G_OBJECT(dialog), "abort_button",             "Abort button", "Show abort button."));
+      addGrid(grid, 1, 0, 1, newCheckButton(NULL, G_OBJECT(dialog), "auto_save_all",            "Auto save all", "Auto save all before build is started."));
+      addGrid(grid, 2, 0, 1, newCheckButton(NULL, G_OBJECT(dialog), "add_project_regex_results","Add results of project regular expressions","Add results of project defined regular expression. If disabled only project regular expressions - if defined - are used only to detect errors or warnings."));
+      addGrid(grid, 3, 0, 1, newCheckButton(NULL, G_OBJECT(dialog), "auto_show_first_error",    "Show first error", "Auto show first error after build is done."));
+      addGrid(grid, 4, 0, 1, newCheckButton(NULL, G_OBJECT(dialog), "auto_show_first_warning",  "Show first warning", "Auto show first warning after build is done without errors."));
     }
     addBox(GTK_BOX(tab), FALSE, GTK_WIDGET(grid));
   }
@@ -5667,7 +6843,7 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
 
           cellRenderer = gtk_cell_renderer_text_new();
           column = gtk_tree_view_column_new_with_attributes("Type",cellRenderer,"text", MODEL_REGEX_TYPE, NULL);
-          gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererType, NULL, NULL);
+          gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererRegexType, NULL, NULL);
           gtk_tree_view_column_set_sort_indicator(column, FALSE);
           gtk_tree_view_column_set_sort_column_id(column, MODEL_REGEX_TYPE);
           gtk_tree_view_column_set_resizable(column, TRUE);
@@ -5761,38 +6937,6 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
 
   gtk_widget_show_all(GTK_WIDGET(notebook));
 
-  // set values
-  guint    i       = 0;
-  gboolean isFirst = TRUE;
-  for (GList *commandNode = pluginData.configuration.commandList; commandNode != NULL; commandNode = commandNode->next)
-  {
-    Command *command = (Command*)commandNode->data;
-    g_assert(command != NULL);
-
-    char titleName[64],commandLineName[64],workingDirectoryName[64],showButtonName[64],showMenuItemName[64],inputCustomTextName[64],runInDockerContainerName[64],parseOutputName[64];
-
-    g_snprintf(titleName,sizeof(titleName),"command_title%d",i);
-    g_snprintf(commandLineName,sizeof(commandLineName),"command_command_line%d",i);
-    g_snprintf(workingDirectoryName,sizeof(workingDirectoryName),"command_working_directory%d",i);
-    g_snprintf(showButtonName,sizeof(showButtonName),"command_show_button%d",i);
-    g_snprintf(showMenuItemName,sizeof(showMenuItemName),"command_show_menu_item%d",i);
-    g_snprintf(inputCustomTextName,sizeof(inputCustomTextName),"command_input_custom_text%d",i);
-    g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
-    g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
-
-    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), titleName)), command->title);
-    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), commandLineName)), command->commandLine);
-    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(dialog), workingDirectoryName)), command->workingDirectory);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), showButtonName)), command->showButton || isFirst);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), showMenuItemName)), command->showMenuItem);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), inputCustomTextName)), command->inputCustomText);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), runInDockerContainerName)), command->runInDockerContainer);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), parseOutputName)), command->parseOutput);
-
-    isFirst = FALSE;
-i++;
-  }
-
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), "error_indicators"         )), pluginData.configuration.errorIndicators);
   gtk_color_chooser_set_rgba(GTK_COLOR_CHOOSER(g_object_get_data(G_OBJECT(dialog),   "error_indicator_color"    )), &pluginData.configuration.errorIndicatorColor);
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(dialog), "warning_indicators"       )), pluginData.configuration.warningIndicators);
@@ -5814,7 +6958,6 @@ i++;
                        );
 
   return GTK_WIDGET(notebook);
-//  return GTK_WIDGET(vbox);
 }
 
 /***********************************************************************\
@@ -5850,10 +6993,10 @@ LOCAL gboolean showProjectSettingsTab(gpointer data)
 * Notes  : -
 \***********************************************************************/
 
-static void onProjectDialogOpen(GObject   *object,
-                                GtkWidget *notebook,
-                                gpointer  data
-                               )
+LOCAL void onProjectDialogOpen(GObject   *object,
+                               GtkWidget *notebook,
+                               gpointer  data
+                              )
 {
   UNUSED_VARIABLE(object);
   UNUSED_VARIABLE(data);
@@ -5863,52 +7006,160 @@ static void onProjectDialogOpen(GObject   *object,
   gtk_widget_set_margin_top(GTK_WIDGET(pluginData.widgets.projectProperties), 6);
   gtk_widget_set_margin_bottom(GTK_WIDGET(pluginData.widgets.projectProperties), 6);
   {
-    GtkFrame *frame;
-    GtkGrid  *grid;
+    GtkWidget *treeView;
 
-    frame = GTK_FRAME(gtk_frame_new("Commands"));
-    gtk_frame_set_shadow_type(frame, GTK_SHADOW_IN);
-    gtk_frame_set_label_align(frame, .5, 0);
-    gtk_widget_set_margin_top(gtk_frame_get_label_widget(frame), 6);
+    GtkWidget *scrolledWindow = gtk_scrolled_window_new(NULL, NULL);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scrolledWindow),
+                                   GTK_POLICY_AUTOMATIC,
+                                   GTK_POLICY_ALWAYS
+                                  );
     {
-      grid = GTK_GRID(gtk_grid_new());
-      gtk_grid_set_row_spacing(grid, 6);
-      gtk_grid_set_column_spacing(grid, 12);
-      g_object_set(grid, "margin", 6, NULL);
-      gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
+      treeView = gtk_tree_view_new();
+      gtk_tree_view_set_headers_visible(GTK_TREE_VIEW(treeView), TRUE);
       {
-        gboolean isFirst = TRUE;
-        for (guint i = 0; i < MAX_COMMANDS; i++)
-        {
-          char titleName[64],commandLineName[64],workingDirectoryName[64],showButtonName[64],showMenuItemName[64],inputCustomTextName[64],runInDockerContainerName[64],parseOutputName[64];
+        GtkCellRenderer   *cellRenderer;
+        GtkTreeViewColumn *column;
 
-          g_snprintf(titleName,sizeof(titleName),"command_title%d",i);
-          g_snprintf(commandLineName,sizeof(commandLineName),"command_command_line%d",i);
-          g_snprintf(workingDirectoryName,sizeof(workingDirectoryName),"command_working_directory%d",i);
-          g_snprintf(showButtonName,sizeof(showButtonName),"command_show_button%d",i);
-          g_snprintf(showMenuItemName,sizeof(showMenuItemName),"command_show_menu_item%d",i);
-          g_snprintf(inputCustomTextName,sizeof(inputCustomTextName),"command_input_custom_text%d",i);
-          g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
-          g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("Title",cellRenderer,"text", MODEL_COMMAND_TITLE, NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_TITLE);
+        gtk_tree_view_column_set_resizable(column, TRUE);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
 
-          addGrid(grid, i, 0, 1, newEntry(G_OBJECT(pluginData.widgets.projectProperties), titleName, "Command title."));
-          addGrid(grid, i, 1, 1, newEntry(G_OBJECT(pluginData.widgets.projectProperties), commandLineName, "Command line."));
-          addGrid(grid, i, 2, 1, newWorkingDirectoryChooser(G_OBJECT(pluginData.widgets.projectProperties), workingDirectoryName, "Working directory for command."));
-          GtkWidget *button = addGrid(grid, i, 3, 1, newCheckButton(G_OBJECT(pluginData.widgets.projectProperties), showButtonName, NULL, "Show button in toolbar."));
-          if (isFirst) gtk_widget_set_sensitive(button,FALSE);
-          addGrid(grid, i, 4, 1, newCheckButton(G_OBJECT(pluginData.widgets.projectProperties), showMenuItemName, NULL, "Show menu item."));
-          addGrid(grid, i, 5, 1, newCheckButton(G_OBJECT(pluginData.widgets.projectProperties), inputCustomTextName, NULL, "Input custom text."));
-          addGrid(grid, i, 6, 1, newCheckButton(G_OBJECT(pluginData.widgets.projectProperties), runInDockerContainerName, NULL, "Run in docker container."));
-          addGrid(grid, i, 7, 1, newCheckButton(G_OBJECT(pluginData.widgets.projectProperties), parseOutputName, NULL, "Parse output for errors/warnings."));
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("Command",cellRenderer,"text", MODEL_COMMAND_COMMAND_LINE, NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_COMMAND_LINE);
+        gtk_tree_view_column_set_resizable(column, TRUE);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
 
-          isFirst = FALSE;
-        }
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("Directory",cellRenderer,"text", MODEL_COMMAND_WORKING_DIRECTORY, NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_WORKING_DIRECTORY);
+        gtk_tree_view_column_set_resizable(column, TRUE);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("B",cellRenderer,"text", MODEL_COMMAND_SHOW_BUTTON, NULL);
+        gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_SHOW_BUTTON), NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_SHOW_BUTTON);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("M",cellRenderer,"text", MODEL_COMMAND_SHOW_MENU_ITEM, NULL);
+        gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_SHOW_MENU_ITEM), NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_SHOW_MENU_ITEM);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("C",cellRenderer,"text", MODEL_COMMAND_INPUT_CUSTOM_TEXT, NULL);
+        gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_INPUT_CUSTOM_TEXT), NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_INPUT_CUSTOM_TEXT);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("D",cellRenderer,"text", MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, NULL);
+        gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER), NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("R",cellRenderer,"text", MODEL_COMMAND_RUN_REMOTE, NULL);
+        gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_RUN_REMOTE), NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_RUN_REMOTE);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+        cellRenderer = gtk_cell_renderer_text_new();
+        column = gtk_tree_view_column_new_with_attributes("P",cellRenderer,"text", MODEL_COMMAND_PARSE_OUTPUT, NULL);
+        gtk_tree_view_column_set_cell_data_func(column, cellRenderer, configureCellRendererBoolean, GUINT_TO_POINTER(MODEL_COMMAND_PARSE_OUTPUT), NULL);
+        gtk_tree_view_column_set_sort_indicator(column, FALSE);
+        gtk_tree_view_column_set_sort_column_id(column, MODEL_COMMAND_PARSE_OUTPUT);
+        gtk_tree_view_append_column(GTK_TREE_VIEW(treeView), column);
+
+        gtk_tree_view_set_model(GTK_TREE_VIEW(treeView),
+                                GTK_TREE_MODEL(pluginData.projectProperties.commandStore)
+                               );
+
+        plugin_signal_connect(geany_plugin,
+                              G_OBJECT(treeView),
+                              "row-activated",
+                              FALSE,
+                              G_CALLBACK(onConfigureDoubleClickCommand),
+                              NULL
+                             );
       }
-      gtk_container_add(GTK_CONTAINER(frame), GTK_WIDGET(grid));
+      gtk_container_add(GTK_CONTAINER(scrolledWindow), treeView);
     }
-    addBox(GTK_BOX(pluginData.widgets.projectProperties), FALSE, GTK_WIDGET(frame));
+    addBox(GTK_BOX(pluginData.widgets.projectProperties), TRUE, scrolledWindow);
 
-    grid = GTK_GRID(gtk_grid_new());
+    GtkBox *hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12));
+    g_object_set(hbox, "margin", 6, NULL);
+    {
+      GtkWidget *button;
+      GtkWidget *image;
+
+      button = gtk_button_new_with_label(_("Add"));
+      image = gtk_image_new();
+      gtk_image_set_from_icon_name(GTK_IMAGE(image), "list-add", GTK_ICON_SIZE_BUTTON);
+      gtk_button_set_image(GTK_BUTTON(button), image);
+      addBox(hbox, FALSE, button);
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(button),
+                            "button-press-event",
+                            FALSE,
+                            G_CALLBACK(onConfigureAddCommand),
+                            pluginData.projectProperties.commandStore
+                           );
+
+      button = gtk_button_new_with_label(_("Clone"));
+      image = gtk_image_new();
+      gtk_image_set_from_icon_name(GTK_IMAGE(image), "edit-copy", GTK_ICON_SIZE_BUTTON);
+      gtk_button_set_image(GTK_BUTTON(button), image);
+      addBox(hbox, FALSE, button);
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(button),
+                            "button-press-event",
+                            FALSE,
+                            G_CALLBACK(onConfigureCloneCommand),
+                            treeView
+                           );
+
+      button = gtk_button_new_with_label(_("Edit"));
+      image = gtk_image_new();
+      gtk_image_set_from_icon_name(GTK_IMAGE(image), "edit-paste", GTK_ICON_SIZE_BUTTON);
+      gtk_button_set_image(GTK_BUTTON(button), image);
+      addBox(hbox, FALSE, button);
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(button),
+                            "button-press-event",
+                            FALSE,
+                            G_CALLBACK(onConfigureEditCommand),
+                            treeView
+                           );
+
+      button = gtk_button_new_with_label(_("Remove"));
+      image = gtk_image_new();
+      gtk_image_set_from_icon_name(GTK_IMAGE(image), "list-remove", GTK_ICON_SIZE_BUTTON);
+      gtk_button_set_image(GTK_BUTTON(button), image);
+      addBox(hbox, FALSE, button);
+      plugin_signal_connect(geany_plugin,
+                            G_OBJECT(button),
+                            "button-press-event",
+                            FALSE,
+                            G_CALLBACK(onConfigureRemoveCommand),
+                            treeView
+                           );
+    }
+    addBox(GTK_BOX(pluginData.widgets.projectProperties), FALSE, GTK_WIDGET(hbox));
+
+    GtkGrid *grid = GTK_GRID(gtk_grid_new());
 // TODO: remove
 //GdkColor red = {0, 0xffff, 0x0000, 0x0000};
 //gtk_widget_modify_bg(grid, GTK_STATE_NORMAL, &red);
@@ -5918,11 +7169,11 @@ static void onProjectDialogOpen(GObject   *object,
     gtk_grid_set_column_spacing(grid, 12);
     gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
     {
-      addGrid(grid, 0, 0, 1, newLabel(G_OBJECT(pluginData.widgets.projectProperties), NULL, "Error regular expression", NULL));
-      addGrid(grid, 0, 1, 1, newEntry(G_OBJECT(pluginData.widgets.projectProperties), "error_regex", "Regular expression to recognize errors"));
+      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(pluginData.widgets.projectProperties), NULL, "Error regular expression", NULL));
+      addGrid(grid, 0, 1, 1, newEntry(NULL, G_OBJECT(pluginData.widgets.projectProperties), "error_regex", "Regular expression to recognize errors"));
 
-      addGrid(grid, 1, 0, 1, newLabel(G_OBJECT(pluginData.widgets.projectProperties), NULL, "Warning regular expression", NULL));
-      addGrid(grid, 1, 1, 1, newEntry(G_OBJECT(pluginData.widgets.projectProperties), "warning_regex", "Regular expression to recognize warnings"));
+      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(pluginData.widgets.projectProperties), NULL, "Warning regular expression", NULL));
+      addGrid(grid, 1, 1, 1, newEntry(NULL, G_OBJECT(pluginData.widgets.projectProperties), "warning_regex", "Regular expression to recognize warnings"));
     }
     addBox(GTK_BOX(pluginData.widgets.projectProperties), FALSE, GTK_WIDGET(grid));
   }
@@ -5931,39 +7182,12 @@ static void onProjectDialogOpen(GObject   *object,
   // add project properties tab
   pluginData.widgets.projectPropertiesTabIndex = gtk_notebook_append_page(GTK_NOTEBOOK(notebook), GTK_WIDGET(pluginData.widgets.projectProperties), gtk_label_new("Builder"));
 
-  // set values
-  gboolean isFirst = TRUE;
-  for (guint i = 0; i < MAX_COMMANDS; i++)
-  {
-    char titleName[64],commandLineName[64],workingDirectoryName[64],showButtonName[64],showMenuItemName[64],inputCustomTextName[64],runInDockerContainerName[64],parseOutputName[64];
-
-    g_snprintf(titleName,sizeof(titleName),"command_title%d",i);
-    g_snprintf(commandLineName,sizeof(commandLineName),"command_command_line%d",i);
-    g_snprintf(workingDirectoryName,sizeof(workingDirectoryName),"command_working_directory%d",i);
-    g_snprintf(showButtonName,sizeof(showButtonName),"command_show_button%d",i);
-    g_snprintf(showMenuItemName,sizeof(showMenuItemName),"command_show_menu_item%d",i);
-    g_snprintf(inputCustomTextName,sizeof(inputCustomTextName),"command_input_custom_text%d",i);
-    g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
-    g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
-
-    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), titleName)), pluginData.projectProperties.commands[i].title);
-    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), commandLineName)), pluginData.projectProperties.commands[i].commandLine);
-    gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), workingDirectoryName)), pluginData.projectProperties.commands[i].workingDirectory);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), showButtonName)), pluginData.projectProperties.commands[i].showButton || isFirst);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), showMenuItemName)), pluginData.projectProperties.commands[i].showMenuItem);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), inputCustomTextName)), pluginData.projectProperties.commands[i].inputCustomText);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), runInDockerContainerName)), pluginData.projectProperties.commands[i].runInDockerContainer);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), parseOutputName)), pluginData.projectProperties.commands[i].parseOutput);
-
-    isFirst = FALSE;
-  }
-
   gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), "error_regex")), pluginData.projectProperties.errorRegEx->str);
   gtk_entry_set_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), "warning_regex")), pluginData.projectProperties.warningRegEx->str);
 
   if (pluginData.widgets.showProjectPropertiesTab)
   {
-    // show projet settings tab
+    // show project settings tab
     pluginData.widgets.showProjectPropertiesTab = FALSE;
     g_idle_add(showProjectSettingsTab, GTK_NOTEBOOK(notebook));
   }
@@ -5980,43 +7204,16 @@ static void onProjectDialogOpen(GObject   *object,
 * Notes  : -
 \***********************************************************************/
 
-static void onProjectDialogConfirmed(GObject   *object,
-                                     GtkWidget *notebook,
-                                     gpointer  data
-                                    )
+LOCAL void onProjectDialogConfirmed(GObject   *object,
+                                    GtkWidget *notebook,
+                                    gpointer  data
+                                   )
 {
   UNUSED_VARIABLE(object);
   UNUSED_VARIABLE(notebook);
   UNUSED_VARIABLE(data);
 
-  // get values
-  gboolean isFirst = TRUE;
-  for (guint i = 0; i < MAX_COMMANDS; i++)
-  {
-    char titleName[64],commandLineName[64],workingDirectoryName[64],showButtonName[64],showMenuItemName[64],inputCustomTextName[64],runInDockerContainerName[64],parseOutputName[64];
-
-    g_snprintf(titleName,sizeof(titleName),"command_title%d",i);
-    g_snprintf(commandLineName,sizeof(commandLineName),"command_command_line%d",i);
-    g_snprintf(workingDirectoryName,sizeof(workingDirectoryName),"command_working_directory%d",i);
-    g_snprintf(showButtonName,sizeof(showButtonName),"command_show_button%d",i);
-    g_snprintf(showMenuItemName,sizeof(showMenuItemName),"command_show_menu_item%d",i);
-    g_snprintf(inputCustomTextName,sizeof(inputCustomTextName),"command_input_custom_text%d",i);
-    g_snprintf(runInDockerContainerName,sizeof(runInDockerContainerName),"command_run_in_docker_container%d",i);
-    g_snprintf(parseOutputName,sizeof(parseOutputName),"command_parse_output%d",i);
-
-    setCommand(&pluginData.projectProperties.commands[i],
-               gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), titleName))),
-               gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), commandLineName))),
-               gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), workingDirectoryName))),
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), showButtonName))) || isFirst,
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), showMenuItemName))),
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), inputCustomTextName))),
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), runInDockerContainerName))),
-               gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), parseOutputName)))
-              );
-
-    isFirst = FALSE;
-  }
+  // update values
   g_string_assign(pluginData.projectProperties.errorRegEx,   gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), "error_regex"))));
   g_string_assign(pluginData.projectProperties.warningRegEx, gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), "warning_regex"))));
 }
@@ -6032,10 +7229,10 @@ static void onProjectDialogConfirmed(GObject   *object,
 * Notes  : -
 \***********************************************************************/
 
-static void onProjectDialogClose(GObject   *object,
-                                 GtkWidget *notebook,
-                                 gpointer  data
-                                )
+LOCAL void onProjectDialogClose(GObject   *object,
+                                GtkWidget *notebook,
+                                gpointer  data
+                               )
 {
   UNUSED_VARIABLE(object);
   UNUSED_VARIABLE(data);
@@ -6046,7 +7243,7 @@ static void onProjectDialogClose(GObject   *object,
 
 /***********************************************************************\
 * Name   : onProjectOpen
-* Purpose: load project cconfiguration
+* Purpose: open project and load configuration
 * Input  : object        - object (not used)
 *          configuration - project configuration to load values from
 *          data          - user data (not used)
@@ -6063,7 +7260,37 @@ LOCAL void onProjectOpen(GObject  *object,
   UNUSED_VARIABLE(object);
   UNUSED_VARIABLE(data);
 
+  pluginData.projectProperties.filePath = geany_data->app->project->file_name;
+
+  // load configuration
   projectConfigurationLoad(configuration);
+
+  // update view
+  updateToolbarButtons();
+  updateToolbarMenuItems();
+}
+
+/***********************************************************************\
+* Name   : onProjectClose
+* Purpose: close project
+* Input  : object        - object (not used)
+*          configuration - project configuration to load values from
+*          data          - user data (not used)
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void onProjectClose(GObject  *object,
+                          GKeyFile *configuration,
+                          gpointer data
+                         )
+{
+  UNUSED_VARIABLE(object);
+  UNUSED_VARIABLE(configuration);
+  UNUSED_VARIABLE(data);
+
+  pluginData.projectProperties.filePath = NULL;
 
   // update view
   updateToolbarButtons();
@@ -6111,6 +7338,17 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer data)
 {
   UNUSED_VARIABLE(data);
 
+  if (!Execute_init())
+  {
+    return FALSE;
+  }
+
+  // init remote
+  if (!Remote_init())
+  {
+    return FALSE;
+  }
+
   // init variables
   pluginData.builtInRegExStore                      = gtk_list_store_new(MODEL_REGEX_COUNT,
                                                                          G_TYPE_STRING,  // language
@@ -6125,10 +7363,45 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer data)
                                                                   "builder.conf",
                                                                   NULL
                                                                  );
-  pluginData.configuration.commandList = NULL;
-fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
-  addCommand(&pluginData.configuration.commandList,"Build",DEFAULT_BUILD_COMMAND,"%p",TRUE,TRUE,FALSE,FALSE,TRUE);
-  addCommand(&pluginData.configuration.commandList,"Clean",DEFAULT_CLEAN_COMMAND,"%p",TRUE,TRUE,FALSE,FALSE,FALSE);
+  pluginData.configuration.commandStore             = gtk_list_store_new(MODEL_COMMAND_COUNT,
+                                                                         G_TYPE_STRING,  // title
+                                                                         G_TYPE_STRING,  // command
+                                                                         G_TYPE_STRING,  // directory
+                                                                         G_TYPE_BOOLEAN, // button
+                                                                         G_TYPE_BOOLEAN, // menu item
+                                                                         G_TYPE_BOOLEAN, // custom text
+                                                                         G_TYPE_BOOLEAN, // run in docker container
+                                                                         G_TYPE_BOOLEAN, // run remote
+                                                                         G_TYPE_BOOLEAN  // parse output
+                                                                        );
+  gtk_list_store_insert_with_values(pluginData.configuration.commandStore,
+                                    NULL,
+                                    -1,
+                                    MODEL_COMMAND_TITLE,                   "Build",
+                                    MODEL_COMMAND_COMMAND_LINE,            DEFAULT_BUILD_COMMAND,
+                                    MODEL_COMMAND_WORKING_DIRECTORY,       "%p",
+                                    MODEL_COMMAND_SHOW_BUTTON,             TRUE,
+                                    MODEL_COMMAND_SHOW_MENU_ITEM,          TRUE,
+                                    MODEL_COMMAND_INPUT_CUSTOM_TEXT,       FALSE,
+                                    MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, FALSE,
+                                    MODEL_COMMAND_RUN_REMOTE,              FALSE,
+                                    MODEL_COMMAND_PARSE_OUTPUT,            TRUE,
+                                    MODEL_END
+                                   );
+  gtk_list_store_insert_with_values(pluginData.configuration.commandStore,
+                                    NULL,
+                                    -1,
+                                    MODEL_COMMAND_TITLE,                   "Clean",
+                                    MODEL_COMMAND_COMMAND_LINE,            DEFAULT_CLEAN_COMMAND,
+                                    MODEL_COMMAND_WORKING_DIRECTORY,       "%p",
+                                    MODEL_COMMAND_SHOW_BUTTON,             TRUE,
+                                    MODEL_COMMAND_SHOW_MENU_ITEM,          TRUE,
+                                    MODEL_COMMAND_INPUT_CUSTOM_TEXT,       FALSE,
+                                    MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, FALSE,
+                                    MODEL_COMMAND_RUN_REMOTE,              FALSE,
+                                    MODEL_COMMAND_PARSE_OUTPUT,            FALSE,
+                                    MODEL_END
+                                   );
   pluginData.configuration.regexStore               = gtk_list_store_new(MODEL_REGEX_COUNT,
                                                                          G_TYPE_STRING,  // language
                                                                          G_TYPE_STRING,  // group
@@ -6144,9 +7417,28 @@ fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
   pluginData.configuration.autoSaveAll              = FALSE;
   pluginData.configuration.autoShowFirstError       = FALSE;
   pluginData.configuration.autoShowFirstWarning     = FALSE;
-  initCommands(pluginData.projectProperties.commands, MAX_COMMANDS);
+
+  pluginData.projectProperties.filePath             = NULL;
+  pluginData.projectProperties.commandStore         = gtk_list_store_new(MODEL_COMMAND_COUNT,
+                                                                         G_TYPE_STRING,  // title
+                                                                         G_TYPE_STRING,  // command
+                                                                         G_TYPE_STRING,  // directory
+                                                                         G_TYPE_BOOLEAN, // button
+                                                                         G_TYPE_BOOLEAN, // menu item
+                                                                         G_TYPE_BOOLEAN, // custom text
+                                                                         G_TYPE_BOOLEAN, // run in docker container
+                                                                         G_TYPE_BOOLEAN, // run remote
+                                                                         G_TYPE_BOOLEAN  // parse output
+                                                                        );
   pluginData.projectProperties.errorRegEx           = g_string_new(NULL);
   pluginData.projectProperties.warningRegEx         = g_string_new(NULL);
+
+  pluginData.projectProperties.remote.hostName      = g_string_new(NULL);
+  pluginData.projectProperties.remote.hostPort      = 22;
+  pluginData.projectProperties.remote.userName      = g_string_new(NULL);
+  pluginData.projectProperties.remote.publicKey     = g_string_new(NULL);
+  pluginData.projectProperties.remote.privateKey    = g_string_new(NULL);
+  pluginData.projectProperties.remote.password      = g_string_new(NULL);
 
   for (guint i = 0; i < MAX_COMMANDS; i++)
   {
@@ -6159,8 +7451,6 @@ fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
 
   pluginData.attachedDockerContainerId              = NULL;
 
-  pluginData.build.pid                              = 0;
-  pluginData.build.workingDirectory                 = g_string_new(NULL);
   pluginData.build.directoryPrefixStack             = string_stack_new();
   pluginData.build.messagesStore = gtk_list_store_new(MODEL_MESSAGE_COUNT,
                                                       G_TYPE_STRING,  // color
@@ -6188,12 +7478,12 @@ fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
                                                       G_TYPE_INT,    // column
                                                       G_TYPE_STRING  // message
                                                      );
-  pluginData.build.errorsTreeIterValid              = FALSE;
-  pluginData.build.warningsTreeIterValid            = FALSE;
-  pluginData.build.lastErrorsWarningsInsertStore    = NULL;
-  pluginData.build.lastErrorsWarningsInsertTreeIter = NULL;
-  pluginData.build.errorWarningIndicatorsCount      = 0;
-  pluginData.build.lastCustomTarget                 = g_string_new(NULL);
+  pluginData.build.errorsTreeIterorValid                = FALSE;
+  pluginData.build.warningsTreeIterorValid              = FALSE;
+  pluginData.build.lastErrorsWarningsInsertStore        = NULL;
+  pluginData.build.lastErrorsWarningsInsertTreeIterator = NULL;
+  pluginData.build.errorWarningIndicatorsCount          = 0;
+  pluginData.build.lastCustomTarget                     = g_string_new(NULL);
 
   for (guint i = 0; i < ARRAY_SIZE(REGEX_BUILTIN); i++)
   {
@@ -6203,7 +7493,7 @@ fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
                                       MODEL_REGEX_GROUP, REGEX_BUILTIN[i].group,
                                       MODEL_REGEX_TYPE,  REGEX_BUILTIN[i].type,
                                       MODEL_REGEX_REGEX, REGEX_BUILTIN[i].regex,
-                                      -1
+                                      MODEL_END
                                      );
   }
 
@@ -6216,6 +7506,9 @@ fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
 
   // init key binding
   initKeyBinding(plugin);
+
+//fprintf(stderr,"%s:%d: ----------------------------------------------\n",__FILE__,__LINE__);
+//testSSH2();
 
   return TRUE;
 }
@@ -6242,14 +7535,18 @@ LOCAL void cleanup(GeanyPlugin *plugin, gpointer data)
   g_string_free(pluginData.build.lastCustomTarget, TRUE);
   string_stack_free(pluginData.build.directoryPrefixStack);
   gtk_tree_path_free(pluginData.build.messagesTreePath);
-  g_string_free(pluginData.build.workingDirectory, TRUE);
-  g_free(pluginData.attachedDockerContainerId);
+  g_free((gchar*)pluginData.attachedDockerContainerId);
+  g_string_free(pluginData.projectProperties.remote.password, TRUE);
+  g_string_free(pluginData.projectProperties.remote.privateKey, TRUE);
+  g_string_free(pluginData.projectProperties.remote.publicKey, TRUE);
+  g_string_free(pluginData.projectProperties.remote.userName, TRUE);
+  g_string_free(pluginData.projectProperties.remote.hostName, TRUE);
   g_string_free(pluginData.projectProperties.warningRegEx, TRUE);
   g_string_free(pluginData.projectProperties.errorRegEx, TRUE);
-  doneCommands(pluginData.projectProperties.commands,MAX_COMMANDS);
-fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
-// TODO:  doneCommands(pluginData.configuration.commands,MAX_COMMANDS);
   g_free(pluginData.configuration.filePath);
+
+  // done remote
+  Remote_done();
 }
 
 /***********************************************************************\
@@ -6265,11 +7562,12 @@ G_MODULE_EXPORT void geany_load_module(GeanyPlugin *plugin)
 {
   static PluginCallback pluginCallbacks[] =
   {
-    {"project-dialog-open",      (GCallback) & onProjectDialogOpen, TRUE, NULL},
-    {"project-dialog-confirmed", (GCallback) & onProjectDialogConfirmed, TRUE, NULL},
-    {"project-dialog-close",     (GCallback) & onProjectDialogClose, TRUE, NULL},
-    {"project-open",             (GCallback) & onProjectOpen, TRUE, NULL},
-    {"project-save",             (GCallback) & onProjectSave, TRUE, NULL},
+    {"project-dialog-open",      (GCallback)&onProjectDialogOpen, TRUE, NULL},
+    {"project-dialog-confirmed", (GCallback)&onProjectDialogConfirmed, TRUE, NULL},
+    {"project-dialog-close",     (GCallback)&onProjectDialogClose, TRUE, NULL},
+    {"project-open",             (GCallback)&onProjectOpen, TRUE, NULL},
+    {"project-close",            (GCallback)&onProjectClose, TRUE, NULL},
+    {"project-save",             (GCallback)&onProjectSave, TRUE, NULL},
     {NULL, NULL, FALSE, NULL}
   };
 
@@ -6279,7 +7577,7 @@ G_MODULE_EXPORT void geany_load_module(GeanyPlugin *plugin)
 
   plugin->info->name        = "Builder";
   plugin->info->description = "Builder tool";
-  plugin->info->version     = "1.0";
+  plugin->info->version     = VERSION;
   plugin->info->author      = "Torsten Rupp <torsten.rupp@gmx.net>";
   plugin->funcs->init       = init;
   plugin->funcs->cleanup    = cleanup;
