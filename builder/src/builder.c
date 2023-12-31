@@ -485,7 +485,7 @@ LOCAL gboolean configurationLoadCommandList(GKeyFile     *configuration,
 * Purpose: save command into configuration
 * Input  : configuration - configuration
 *          listStore     - list store
-*          treeIter      - iterator to command in store
+*          treeIterator  - iterator to command in store
 *          name          - name
 * Output : -
 * Return : TRUE iff saved
@@ -875,7 +875,7 @@ LOCAL gboolean configurationLoadRegexList(GKeyFile     *configuration,
 * Purpose: save command into configuration
 * Input  : configuration - configuration
 *          listStore     - list store
-*          treeIter      - iterator to command in store
+*          treeIterator  - iterator to command in store
 *          name          - name
 * Output : -
 * Return : TRUE iff saved
@@ -1656,21 +1656,21 @@ LOCAL void addCommand(GtkListStore *listStore)
 /***********************************************************************\
 * Name   : cloneCommand
 * Purpose: clone command
-* Input  : listStore - model
-*          treeIter  - iterator in model
+* Input  : listStore    - model
+*          treeIterator - iterator in model
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void cloneCommand(GtkListStore *listStore,
-                        GtkTreeIter  *treeIter
+                        GtkTreeIter  *treeIterator
                        )
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
   g_assert(listStore != NULL);
-  g_assert(treeIter != NULL);
+  g_assert(treeIterator != NULL);
 
   gchar    *title;
   gchar    *commandLine;
@@ -1682,7 +1682,7 @@ LOCAL void cloneCommand(GtkListStore *listStore,
   gboolean runRemote;
   gboolean parseOutput;
   gtk_tree_model_get(GTK_TREE_MODEL(listStore),
-                     treeIter,
+                     treeIterator,
                      MODEL_COMMAND_TITLE,                   &title,
                      MODEL_COMMAND_COMMAND_LINE,            &commandLine,
                      MODEL_COMMAND_WORKING_DIRECTORY,       &workingDirectory,
@@ -1742,21 +1742,21 @@ LOCAL void cloneCommand(GtkListStore *listStore,
 /***********************************************************************\
 * Name   : editCommand
 * Purpose: edit command
-* Input  : listStore - model
-*          treeIter  - iterator in model
+* Input  : listStore    - model
+*          treeIterator - iterator in model
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void editCommand(GtkListStore *listStore,
-                       GtkTreeIter  *treeIter
+                       GtkTreeIter  *treeIterator
                       )
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
   g_assert(listStore != NULL);
-  g_assert(treeIter != NULL);
+  g_assert(treeIterator != NULL);
 
   gchar    *title;
   gchar    *commandLine;
@@ -1768,7 +1768,7 @@ LOCAL void editCommand(GtkListStore *listStore,
   gboolean runRemote;
   gboolean parseOutput;
   gtk_tree_model_get(GTK_TREE_MODEL(listStore),
-                     treeIter,
+                     treeIterator,
                      MODEL_COMMAND_TITLE,                   &title,
                      MODEL_COMMAND_COMMAND_LINE,            &commandLine,
                      MODEL_COMMAND_WORKING_DIRECTORY,       &workingDirectory,
@@ -1802,7 +1802,7 @@ LOCAL void editCommand(GtkListStore *listStore,
      )
   {
     gtk_list_store_set(listStore,
-                       treeIter,
+                       treeIterator,
                        MODEL_COMMAND_TITLE,                   titleString->str,
                        MODEL_COMMAND_COMMAND_LINE,            commandLineString->str,
                        MODEL_COMMAND_WORKING_DIRECTORY,       workingDirectoryString->str,
@@ -1830,8 +1830,8 @@ LOCAL void editCommand(GtkListStore *listStore,
 * Input  : cellLayout   - cell layout
 *          cellRenderer - cell renderer
 *          treeModel    - model
-*          treeIter     - tree entry iterator
-*          data         - user data (not used)
+*          treeIterator - tree entry iterator
+*          userData     - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -1840,20 +1840,20 @@ LOCAL void editCommand(GtkListStore *listStore,
 LOCAL void  dialogRegexTypeCellRenderer(GtkCellLayout   *cellLayout,
                                         GtkCellRenderer *cellRenderer,
                                         GtkTreeModel    *treeModel,
-                                        GtkTreeIter     *treeIter,
-                                        gpointer         data
+                                        GtkTreeIter     *treeIterator,
+                                        gpointer         userData
                                        )
 {
   g_assert(cellLayout != NULL);
   g_assert(cellRenderer != NULL);
   g_assert(treeModel != NULL);
-  g_assert(treeIter != NULL);
+  g_assert(treeIterator != NULL);
 
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   RegexTypes type;
   gtk_tree_model_get(treeModel,
-                     treeIter,
+                     treeIterator,
                      MODEL_REGEX_TYPE, &type,
                      MODEL_END
                     );
@@ -1865,15 +1865,15 @@ LOCAL void  dialogRegexTypeCellRenderer(GtkCellLayout   *cellLayout,
 /***********************************************************************\
 * Name   : dialogRegexUpdateMatch
 * Purpose: update regular expression dialog match
-* Input  : widgetLanguage    - language widget
-*          widgetGroup       - group widget
-*          widgetRegex       - regular expression entry widget
-*          widgetSample      - sample entry widget
+* Input  : widgetLanguage     - language widget
+*          widgetGroup        - group widget
+*          widgetRegex        - regular expression entry widget
+*          widgetSample       - sample entry widget
 *          widgetFilePath     - view file path entry widget
 *          widgetLineNumber   - view line number entry widget
 *          widgetColumnNumber - view column number entry widget
 *          widgetMessage      - view message entry widget
-*          widgetOK         - OK button widget
+*          widgetOK           - OK button widget
 * Output : -
 * Return : -
 * Notes  : -
@@ -1992,18 +1992,18 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
 /***********************************************************************\
 * Name   : onInputRegexDialogChanged
 * Purpose: input regular expression changed callback
-* Input  : entry - entry
-*          data  - ok-button widget
+* Input  : entry    - entry
+*          userData - user data: ok-button widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void onInputRegexDialogChanged(GtkWidget *widget,
-                                     gpointer  data
+                                     gpointer  userData
                                     )
 {
-  GtkWidget *dialog = GTK_WIDGET(data);
+  GtkWidget *dialog = GTK_WIDGET(userData);
   g_assert(dialog != NULL);
 
   UNUSED_VARIABLE(widget);
@@ -2042,18 +2042,18 @@ LOCAL void onInputRegexDialogChanged(GtkWidget *widget,
 /***********************************************************************\
 * Name   : validateGroup
 * Purpose: validate group input: allow letters, digits, and _
-* Input  : value - new value to insert
-*          data  - user data (not used)
+* Input  : value    - new value to insert
+*          userData - user data (not used)
 * Output : -
 * Return : TRUE iff input valid
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean validateGroup(const gchar *value, gpointer data)
+LOCAL gboolean validateGroup(const gchar *value, gpointer userData)
 {
   g_assert(value != NULL);
 
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   while ((*value) != '\0')
   {
@@ -2076,7 +2076,7 @@ LOCAL gboolean validateGroup(const gchar *value, gpointer data)
 *          text     - text
 *          length   - length
 *          position - position
-*          data     - user data
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -2086,18 +2086,20 @@ LOCAL void onInputRegexDialogComboGroupInsertText(GtkEntry    *entry,
                                                   const gchar *text,
                                                   gint        length,
                                                   gint        *position,
-                                                  gpointer    data
+                                                  gpointer    userData
 )
 {
   GtkEditable    *editable     = GTK_EDITABLE(entry);
   InputValidator validator     = (InputValidator)g_object_get_data(G_OBJECT(entry), "validatorFunction");
   gpointer       validatorData = g_object_get_data(G_OBJECT(entry), "validatorData");
 
+  UNUSED_VARIABLE(userData);
+
   if (validator(text, validatorData))
   {
-    g_signal_handlers_block_by_func(G_OBJECT(editable), G_CALLBACK(onInputRegexDialogComboGroupInsertText), data);
+    g_signal_handlers_block_by_func(G_OBJECT(editable), G_CALLBACK(onInputRegexDialogComboGroupInsertText), userData);
     gtk_editable_insert_text(editable, text, length, position);
-    g_signal_handlers_unblock_by_func(G_OBJECT(editable), G_CALLBACK(onInputRegexDialogComboGroupInsertText), data);
+    g_signal_handlers_unblock_by_func(G_OBJECT(editable), G_CALLBACK(onInputRegexDialogComboGroupInsertText), userData);
   }
   g_signal_stop_emission_by_name(G_OBJECT(editable), "insert_text");
 }
@@ -2651,30 +2653,30 @@ LOCAL void addRegex(const gchar *sample)
 /***********************************************************************\
 * Name   : cloneRegex
 * Purpose: clone regular expression
-* Input  : listStore - model
-*          treeIter  - iterator in model
-*          sample    - sample for regex-match or ""
+* Input  : listStore    - model
+*          treeIterator - iterator in model
+*          sample       - sample for regex-match or ""
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void cloneRegex(GtkListStore *listStore,
-                      GtkTreeIter  *treeIter,
+                      GtkTreeIter  *treeIterator,
                       const gchar  *sample
                      )
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
   g_assert(listStore != NULL);
-  g_assert(treeIter != NULL);
+  g_assert(treeIterator != NULL);
 
   gchar       *language;
   gchar       *group;
   RegexTypes  regexType;
   gchar       *regex;
   gtk_tree_model_get(GTK_TREE_MODEL(listStore),
-                     treeIter,
+                     treeIterator,
                      MODEL_REGEX_LANGUAGE, &language,
                      MODEL_REGEX_GROUP,    &group,
                      MODEL_REGEX_TYPE,     &regexType,
@@ -2735,30 +2737,30 @@ LOCAL void cloneRegex(GtkListStore *listStore,
 /***********************************************************************\
 * Name   : editRegex
 * Purpose: edit regular expression
-* Input  : listStore - model
-*          treeIter  - iterator in model
-*          sample    - sample for regex-match or ""
+* Input  : listStore    - model
+*          treeIterator - iterator in model
+*          sample       - sample for regex-match or ""
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void editRegex(GtkListStore *listStore,
-                     GtkTreeIter  *treeIter,
+                     GtkTreeIter  *treeIterator,
                      const gchar  *sample
                     )
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
   g_assert(listStore != NULL);
-  g_assert(treeIter != NULL);
+  g_assert(treeIterator != NULL);
 
   gchar       *language;
   gchar       *group;
   RegexTypes  regexType;
   gchar       *regex;
   gtk_tree_model_get(GTK_TREE_MODEL(listStore),
-                     treeIter,
+                     treeIterator,
                      MODEL_REGEX_LANGUAGE, &language,
                      MODEL_REGEX_GROUP,    &group,
                      MODEL_REGEX_TYPE,     &regexType,
@@ -2789,7 +2791,7 @@ LOCAL void editRegex(GtkListStore *listStore,
     g_assert(regexType <= REGEX_TYPE_MAX);
 
     gtk_list_store_set(listStore,
-                       treeIter,
+                       treeIterator,
                        MODEL_REGEX_LANGUAGE, languageString->str,
                        MODEL_REGEX_GROUP,    groupString->str,
                        MODEL_REGEX_TYPE,     regexType,
@@ -3952,18 +3954,18 @@ LOCAL void executeCommandAbort()
 /***********************************************************************\
 * Name   : onExecuteCommand
 * Purpose: execute command callback
-* Input  : widget - widget
-*          data   - user data (not used)
+* Input  : widget   - widget
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onExecuteCommand(GtkWidget *widget, gpointer data)
+LOCAL void onExecuteCommand(GtkWidget *widget, gpointer userData)
 {
-  UNUSED_VARIABLE(data);
-
   g_assert(widget != NULL);
+
+  UNUSED_VARIABLE(userData);
 
   GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(widget), "listStore"));
   g_assert(listStore != NULL);
@@ -4839,7 +4841,7 @@ LOCAL gboolean onMessageListSelectionChanged(gpointer data)
 * Purpose: button press callback
 * Input  : messageList - message list widget
 *          eventButton - button event
-*          data        - popup menu
+*          userData    - user data: popup menu
 * Output : -
 * Return : -
 * Notes  : -
@@ -4847,11 +4849,10 @@ LOCAL gboolean onMessageListSelectionChanged(gpointer data)
 
 LOCAL gboolean onMessageListButtonPress(GtkTreeView    *messageList,
                                         GdkEventButton *eventButton,
-                                        gpointer       data
+                                        gpointer       userData
                                        )
 {
-  GtkMenu *menu = (GtkMenu*)data;
-
+  GtkMenu *menu = (GtkMenu*)userData;
   g_assert(messageList != NULL);
   g_assert(eventButton != NULL);
   g_assert(menu != NULL);
@@ -4901,16 +4902,15 @@ LOCAL gboolean onMessageListButtonPress(GtkTreeView    *messageList,
 /***********************************************************************\
 * Name   : onErrorWarningTreeSelectionChanged
 * Purpose: selection changed callback
-* Input  : data - tree widget
+* Input  : userData - user data: tree widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean onErrorWarningTreeSelectionChanged(gpointer data)
+LOCAL gboolean onErrorWarningTreeSelectionChanged(gpointer userData)
 {
-  GtkTreeView *treeView = GTK_TREE_VIEW(data);
-
+  GtkTreeView *treeView = GTK_TREE_VIEW(userData);
   g_assert(treeView != NULL);
 
   GtkTreeSelection *treeSelection;
@@ -4954,7 +4954,7 @@ LOCAL gboolean onErrorWarningTreeSelectionChanged(gpointer data)
 * Purpose: button press callback
 * Input  : widget      - widget
 *          eventButton - button event
-*          data        - user data (not used)
+*          userData    - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -4962,13 +4962,13 @@ LOCAL gboolean onErrorWarningTreeSelectionChanged(gpointer data)
 
 LOCAL gboolean onErrorWarningTreeButtonPress(GtkTreeView    *treeView,
                                              GdkEventButton *eventButton,
-                                             gpointer       data
+                                             gpointer       userData
                                             )
 {
   g_assert(treeView != NULL);
   g_assert(eventButton != NULL);
 
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   if      (eventButton->button == 1)
   {
@@ -4986,7 +4986,7 @@ LOCAL gboolean onErrorWarningTreeButtonPress(GtkTreeView    *treeView,
 * Purpose: key press callback
 * Input  : widget   - widget
 *          eventKey - key event
-*          data     - user data (not used)
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -4994,13 +4994,13 @@ LOCAL gboolean onErrorWarningTreeButtonPress(GtkTreeView    *treeView,
 
 LOCAL gboolean onErrorWarningTreeKeyPress(GtkTreeView *treeView,
                                           GdkEventKey *eventKey,
-                                          gpointer    data
+                                          gpointer    userData
                                          )
 {
   g_assert(treeView != NULL);
   g_assert(eventKey != NULL);
 
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   if (   (eventKey->keyval == GDK_Return)
       || (eventKey->keyval == GDK_ISO_Enter)
@@ -5026,8 +5026,8 @@ LOCAL gboolean onErrorWarningTreeKeyPress(GtkTreeView *treeView,
 * Purpose: double-click callback: expand/collaps tree entry
 * Input  : widget   - widget
 *          treePath - tree path
-*          column   - column
-*          data     - user data (not used)
+*          column   - column (not used)
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -5036,7 +5036,7 @@ LOCAL gboolean onErrorWarningTreeKeyPress(GtkTreeView *treeView,
 LOCAL void onErrorWarningTreeDoubleClick(GtkTreeView       *treeView,
                                          GtkTreePath       *treePath,
                                          GtkTreeViewColumn *column,
-                                         gpointer           data
+                                         gpointer           userData
                                         )
 {
   g_assert(treeView != NULL);
@@ -5044,7 +5044,7 @@ LOCAL void onErrorWarningTreeDoubleClick(GtkTreeView       *treeView,
   g_assert(column != NULL);
 
   UNUSED_VARIABLE(column);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   GtkTreeModel *model = gtk_tree_view_get_model(treeView);
 
@@ -5662,17 +5662,20 @@ LOCAL void doneToolbar(GeanyPlugin *plugin)
 * Purpose: add regular expression
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - user data (no used)
+*          userData    - user data (no used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMessageListAddRegEx(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onMessageListAddRegEx(GtkWidget      *widget,
+                                 GdkEventButton *eventButton,
+                                 gpointer       userData
+                                )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   GtkTreeIter treeIterator;
   if (gtk_tree_model_get_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
@@ -5702,17 +5705,20 @@ LOCAL void onMessageListAddRegEx(GtkWidget *widget, GdkEventButton *eventButton,
 * Purpose: edit regular expression
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - user data (no used)
+*          userData    - user data (no used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onMessageListEditRegEx(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onMessageListEditRegEx(GtkWidget      *widget,
+                                  GdkEventButton *eventButton,
+                                  gpointer       userData
+                                 )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   GtkTreeIter treeIterator;
   if (gtk_tree_model_get_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
@@ -5752,8 +5758,8 @@ LOCAL void onMessageListEditRegEx(GtkWidget *widget, GdkEventButton *eventButton
 * Input  : column       - tree column
 *          cellRenderer - cell renderer
 *          treeModel    - tree data model
-*          treeIter     - tree entry iterator
-*          data         - column number
+*          treeIterator - tree entry iterator
+*          userData     - user data: column number
 * Output : -
 * Return : -
 * Notes  : -
@@ -5762,19 +5768,19 @@ LOCAL void onMessageListEditRegEx(GtkWidget *widget, GdkEventButton *eventButton
 LOCAL void  errorWarningTreeViewCellRendererInteger(GtkTreeViewColumn *column,
                                                     GtkCellRenderer   *cellRenderer,
                                                     GtkTreeModel      *treeModel,
-                                                    GtkTreeIter       *treeIter,
-                                                    gpointer           data
+                                                    GtkTreeIter       *treeIterator,
+                                                    gpointer          userData
                                                    )
 {
-  guint i = GPOINTER_TO_INT(data);
+  guint i = GPOINTER_TO_INT(userData);
 
   g_assert(column != NULL);
   g_assert(cellRenderer != NULL);
   g_assert(treeModel != NULL);
-  g_assert(treeIter != NULL);
+  g_assert(treeIterator != NULL);
 
   gint n;
-  gtk_tree_model_get(treeModel, treeIter, i, &n, MODEL_END);
+  gtk_tree_model_get(treeModel, treeIterator, i, &n, MODEL_END);
   if (n > 0)
   {
     gchar buffer[64];
@@ -5862,7 +5868,7 @@ LOCAL GtkWidget *newErrorWarningTreeView()
 * Input  : treeView - tree view
 *          treePath - tree path (not used)
 *          column   - tree column (not used)
-*          data     - data (not used)
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -5871,12 +5877,12 @@ LOCAL GtkWidget *newErrorWarningTreeView()
 LOCAL void onConfigureDoubleClickCommand(GtkTreeView       *treeView,
                                          GtkTreePath       *treePath,
                                          GtkTreeViewColumn *column,
-                                         gpointer           data
+                                         gpointer           userData
                                         )
 {
   UNUSED_VARIABLE(treePath);
   UNUSED_VARIABLE(column);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
   g_assert(treeSelection != NULL);
@@ -5896,18 +5902,21 @@ LOCAL void onConfigureDoubleClickCommand(GtkTreeView       *treeView,
 * Purpose: add command
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - user data (not used)
+*          userData    - user data: list store
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureAddCommand(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onConfigureAddCommand(GtkWidget      *widget,
+                                 GdkEventButton *eventButton,
+                                 gpointer       userData
+                                )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
 
-  GtkListStore *listStore = GTK_LIST_STORE(data);
+  GtkListStore *listStore = GTK_LIST_STORE(userData);
   g_assert(listStore != NULL);
 
   addCommand(listStore);
@@ -5918,18 +5927,23 @@ LOCAL void onConfigureAddCommand(GtkWidget *widget, GdkEventButton *eventButton,
 * Purpose: clone command
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - list view widget
+*          data        - user data: list view widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureCloneCommand(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onConfigureCloneCommand(GtkWidget      *widget,
+                                   GdkEventButton *eventButton,
+                                   gpointer       userData
+                                  )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
 
-  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  GtkWidget *treeView = GTK_WIDGET(userData);
+  g_assert(treeView != NULL);
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
@@ -5948,19 +5962,24 @@ LOCAL void onConfigureCloneCommand(GtkWidget *widget, GdkEventButton *eventButto
 * Purpose: edit command
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - list view widget
+*          userData    - user data: list view widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureEditCommand(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onConfigureEditCommand(GtkWidget      *widget,
+                                  GdkEventButton *eventButton,
+                                  gpointer       userData
+                                 )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
-  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  GtkWidget *treeView = GTK_WIDGET(userData);
+  g_assert(treeView != NULL);
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
@@ -5979,18 +5998,23 @@ LOCAL void onConfigureEditCommand(GtkWidget *widget, GdkEventButton *eventButton
 * Purpose: remove command
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - list view widget
+*          userData    - user data: list view widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureRemoveCommand(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onConfigureRemoveCommand(GtkWidget      *widget,
+                                    GdkEventButton *eventButton,
+                                    gpointer       userData
+                                   )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
 
-  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  GtkWidget *treeView = GTK_WIDGET(userData);
+  g_assert(treeView != NULL);
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
@@ -6003,26 +6027,26 @@ LOCAL void onConfigureRemoveCommand(GtkWidget *widget, GdkEventButton *eventButt
 }
 
 /***********************************************************************\
-* Name   : onConfigureDoubleClickRegEx
+* Name   : onConfigureDoubleClickRegex
 * Purpose: handle double-click: edit selected regular expression
 * Input  : treeView - tree view
 *          treePath - tree path (not used)
 *          column   - tree column (not used)
-*          data     - data (not used)
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureDoubleClickRegEx(GtkTreeView       *treeView,
+LOCAL void onConfigureDoubleClickRegex(GtkTreeView       *treeView,
                                        GtkTreePath       *treePath,
                                        GtkTreeViewColumn *column,
-                                       gpointer           data
+                                       gpointer           userData
                                       )
 {
   UNUSED_VARIABLE(treePath);
   UNUSED_VARIABLE(column);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
   g_assert(treeSelection != NULL);
@@ -6044,17 +6068,20 @@ LOCAL void onConfigureDoubleClickRegEx(GtkTreeView       *treeView,
 * Purpose: add regular expression
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - user data (not used)
+*          userData    - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureAddRegEx(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onConfigureAddRegEx(GtkWidget      *widget,
+                               GdkEventButton *eventButton,
+                               gpointer       userData
+                              )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
 // TODO: list store
 fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
@@ -6063,22 +6090,27 @@ fprintf(stderr,"%s:%d: _\n",__FILE__,__LINE__);
 }
 
 /***********************************************************************\
-* Name   : onConfigureCloneRegEx
+* Name   : onConfigureCloneRegex
 * Purpose: clone regular expression
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - list view widget
+*          userData    - user data: list view widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureCloneRegEx(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onConfigureCloneRegex(GtkWidget      *widget,
+                                 GdkEventButton *eventButton,
+                                 gpointer       userData
+                                )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
 
-  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  GtkWidget *treeView = GTK_WIDGET(userData);
+  g_assert(treeView != NULL);
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
@@ -6093,22 +6125,27 @@ LOCAL void onConfigureCloneRegEx(GtkWidget *widget, GdkEventButton *eventButton,
 }
 
 /***********************************************************************\
-* Name   : onConfigureEditRegEx
+* Name   : onConfigureEditRegex
 * Purpose: edit regular expression
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - list view widget
+*          userData    - user data: list view widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureEditRegEx(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onConfigureEditRegex(GtkWidget      *widget,
+                                GdkEventButton *eventButton,
+                                gpointer       userData
+                               )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
 
-  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  GtkWidget *treeView = GTK_WIDGET(userData);
+  g_assert(treeView != NULL);
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
@@ -6123,22 +6160,27 @@ LOCAL void onConfigureEditRegEx(GtkWidget *widget, GdkEventButton *eventButton, 
 }
 
 /***********************************************************************\
-* Name   : onConfigureRemoveRegEx
+* Name   : onConfigureRemoveRegex
 * Purpose: remove regular expression
 * Input  : widget      - widget (not used)
 *          eventButton - event button (not used)
-*          data        - list view widget
+*          userData    - user data: list view widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureRemoveRegEx(GtkWidget *widget, GdkEventButton *eventButton, gpointer data)
+LOCAL void onConfigureRemoveRegex(GtkWidget      *widget,
+                                  GdkEventButton *eventButton,
+                                  gpointer       userData
+                                 )
 {
   UNUSED_VARIABLE(widget);
   UNUSED_VARIABLE(eventButton);
 
-  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(data));
+  GtkWidget *treeView = GTK_WIDGET(userData);
+  g_assert(treeView != NULL);
+  GtkTreeSelection *treeSelection = gtk_tree_view_get_selection(GTK_TREE_VIEW(treeView));
   g_assert(treeSelection != NULL);
 
   GtkTreeModel *treeModel;
@@ -6478,31 +6520,31 @@ LOCAL void doneTab(GeanyPlugin *plugin)
 * Input  : cellLayout   - cell layout
 *          cellRenderer - cell renderer
 *          treeModel    - tree data model
-*          treeIter     - tree entry iterator
-*          data         - model index
+*          treeIterator - tree entry iterator
+*          userData     - user data: model index
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
 LOCAL void  configureCellRendererBoolean(GtkTreeViewColumn *cellLayout,
-                                         GtkCellRenderer *cellRenderer,
-                                         GtkTreeModel    *treeModel,
-                                         GtkTreeIter     *treeIter,
-                                         gpointer         data
+                                         GtkCellRenderer   *cellRenderer,
+                                         GtkTreeModel      *treeModel,
+                                         GtkTreeIter       *treeIterator,
+                                         gpointer           userData
                                         )
 {
-  guint modelIndex = GPOINTER_TO_UINT(data);
+  guint modelIndex = GPOINTER_TO_UINT(userData);
 
   g_assert(cellLayout != NULL);
   g_assert(cellRenderer != NULL);
   g_assert(treeModel != NULL);
-  g_assert(treeIter != NULL);
+  g_assert(treeIterator != NULL);
 
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   gboolean value = FALSE;
-  gtk_tree_model_get(treeModel, treeIter, modelIndex, &value, MODEL_END);
+  gtk_tree_model_get(treeModel, treeIterator, modelIndex, &value, MODEL_END);
   g_object_set(cellRenderer, "text", value ? "\u2713" : "-", NULL);
 }
 
@@ -6512,8 +6554,8 @@ LOCAL void  configureCellRendererBoolean(GtkTreeViewColumn *cellLayout,
 * Input  : column       - column (not used)
 *          cellRenderer - cell renderer
 *          treeModel    - model
-*          treeIter     - element iterator in model
-*          data         - user data (not used)
+*          treeIterator - element iterator in model
+*          userData     - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -6522,20 +6564,20 @@ LOCAL void  configureCellRendererBoolean(GtkTreeViewColumn *cellLayout,
 LOCAL void configureCellRendererRegexType(GtkTreeViewColumn *column,
                                           GtkCellRenderer   *cellRenderer,
                                           GtkTreeModel      *treeModel,
-                                          GtkTreeIter       *treeIter,
-                                          gpointer          data
+                                          GtkTreeIter       *treeIterator,
+                                          gpointer          userData
                                          )
 {
   RegexTypes regexType;
 
   UNUSED_VARIABLE(column);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   g_assert(treeModel != NULL);
-  g_assert(treeIter != NULL);
+  g_assert(treeIterator != NULL);
 
   gtk_tree_model_get(treeModel,
-                     treeIter,
+                     treeIterator,
                      MODEL_REGEX_TYPE, &regexType,
                      MODEL_END
                     );
@@ -6549,15 +6591,18 @@ LOCAL void configureCellRendererRegexType(GtkTreeViewColumn *column,
 * Purpose: save configuration
 * Input  : dialog   - dialog
 *          response - dialog response code
-*          data     - user data (not used)
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void onConfigureResponse(GtkDialog *dialog, gint response, gpointer data)
+LOCAL void onConfigureResponse(GtkDialog *dialog,
+                               gint      response,
+                               gpointer  userData
+                              )
 {
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   // check if configuration should be saved/applied
   if (   (response != GTK_RESPONSE_OK)
@@ -6593,19 +6638,22 @@ LOCAL void onConfigureResponse(GtkDialog *dialog, gint response, gpointer data)
 /***********************************************************************\
 * Name   : configure
 * Purpose: global configuration dialog
-* Input  : plugin - Geany plugin
-*          dialog - dialog
-*          data   - user data (not used)
+* Input  : plugin   - Geany plugin
+*          dialog   - dialog
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data)
+LOCAL GtkWidget *configure(GeanyPlugin *plugin,
+                           GtkDialog   *dialog,
+                           gpointer    userData
+                          )
 {
   g_assert(plugin != NULL);
 
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   GtkWidget *notebook = gtk_notebook_new();
   g_assert(notebook != NULL);
@@ -6864,7 +6912,7 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
                                 G_OBJECT(treeView),
                                 "row-activated",
                                 FALSE,
-                                G_CALLBACK(onConfigureDoubleClickRegEx),
+                                G_CALLBACK(onConfigureDoubleClickRegex),
                                 NULL
                                );
         }
@@ -6900,7 +6948,7 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
                               G_OBJECT(button),
                               "button-press-event",
                               FALSE,
-                              G_CALLBACK(onConfigureCloneRegEx),
+                              G_CALLBACK(onConfigureCloneRegex),
                               g_object_get_data(G_OBJECT(dialog), "regex_list")
                              );
 
@@ -6913,7 +6961,7 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
                               G_OBJECT(button),
                               "button-press-event",
                               FALSE,
-                              G_CALLBACK(onConfigureEditRegEx),
+                              G_CALLBACK(onConfigureEditRegex),
                               g_object_get_data(G_OBJECT(dialog), "regex_list")
                              );
 
@@ -6926,7 +6974,7 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
                               G_OBJECT(button),
                               "button-press-event",
                               FALSE,
-                              G_CALLBACK(onConfigureRemoveRegEx),
+                              G_CALLBACK(onConfigureRemoveRegex),
                               g_object_get_data(G_OBJECT(dialog), "regex_list")
                              );
       }
@@ -6963,16 +7011,15 @@ LOCAL GtkWidget *configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer data
 /***********************************************************************\
 * Name   : showProjectSettingsTab
 * Purpose: show project settings tab
-* Input  : data - notebook widget
+* Input  : userData- user data: notebook widget
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean showProjectSettingsTab(gpointer data)
+LOCAL gboolean showProjectSettingsTab(gpointer userData)
 {
-  GtkWidget *notebook = (GtkWidget*)data;
-
+  GtkWidget *notebook = (GtkWidget*)userData;
   g_assert(notebook != NULL);
 
   gtk_notebook_set_current_page(GTK_NOTEBOOK(notebook),
@@ -6987,7 +7034,7 @@ LOCAL gboolean showProjectSettingsTab(gpointer data)
 * Purpose: add project settings
 * Input  : object   - object (not used)
 *          notebook - notebook
-*          data     - user data (not used)
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -6995,11 +7042,11 @@ LOCAL gboolean showProjectSettingsTab(gpointer data)
 
 LOCAL void onProjectDialogOpen(GObject   *object,
                                GtkWidget *notebook,
-                               gpointer  data
+                               gpointer  userData
                               )
 {
   UNUSED_VARIABLE(object);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   // init project configuration settings
   pluginData.widgets.projectProperties = GTK_BOX(gtk_box_new(GTK_ORIENTATION_VERTICAL, 6));
@@ -7198,7 +7245,7 @@ LOCAL void onProjectDialogOpen(GObject   *object,
 * Purpose: handle project properties dialog confirm: save values
 * Input  : object   - object (not used)
 *          notebook - notebook (not used)
-*          data     - user data (not used)
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -7206,12 +7253,12 @@ LOCAL void onProjectDialogOpen(GObject   *object,
 
 LOCAL void onProjectDialogConfirmed(GObject   *object,
                                     GtkWidget *notebook,
-                                    gpointer  data
+                                    gpointer  userData
                                    )
 {
   UNUSED_VARIABLE(object);
   UNUSED_VARIABLE(notebook);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   // update values
   g_string_assign(pluginData.projectProperties.errorRegEx,   gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), "error_regex"))));
@@ -7223,7 +7270,7 @@ LOCAL void onProjectDialogConfirmed(GObject   *object,
 * Purpose: handle project properties close
 * Input  : object   - object (not used)
 *          notebook - notebook
-*          data     - user data (not used)
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -7231,11 +7278,11 @@ LOCAL void onProjectDialogConfirmed(GObject   *object,
 
 LOCAL void onProjectDialogClose(GObject   *object,
                                 GtkWidget *notebook,
-                                gpointer  data
+                                gpointer  userData
                                )
 {
   UNUSED_VARIABLE(object);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   // remove project properties tab
   gtk_notebook_remove_page(GTK_NOTEBOOK(notebook), pluginData.widgets.projectPropertiesTabIndex);
@@ -7246,7 +7293,7 @@ LOCAL void onProjectDialogClose(GObject   *object,
 * Purpose: open project and load configuration
 * Input  : object        - object (not used)
 *          configuration - project configuration to load values from
-*          data          - user data (not used)
+*          userData      - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -7254,11 +7301,11 @@ LOCAL void onProjectDialogClose(GObject   *object,
 
 LOCAL void onProjectOpen(GObject  *object,
                          GKeyFile *configuration,
-                         gpointer data
+                         gpointer userData
                         )
 {
   UNUSED_VARIABLE(object);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   pluginData.projectProperties.filePath = geany_data->app->project->file_name;
 
@@ -7275,7 +7322,7 @@ LOCAL void onProjectOpen(GObject  *object,
 * Purpose: close project
 * Input  : object        - object (not used)
 *          configuration - project configuration to load values from
-*          data          - user data (not used)
+*          userData      - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -7283,12 +7330,12 @@ LOCAL void onProjectOpen(GObject  *object,
 
 LOCAL void onProjectClose(GObject  *object,
                           GKeyFile *configuration,
-                          gpointer data
+                          gpointer userData
                          )
 {
   UNUSED_VARIABLE(object);
   UNUSED_VARIABLE(configuration);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   pluginData.projectProperties.filePath = NULL;
 
@@ -7302,7 +7349,7 @@ LOCAL void onProjectClose(GObject  *object,
 * Purpose: save project configuration
 * Input  : object        - object (not used)
 *          configuration - project configuration to save values to
-*          data          - user data (not used)
+*          userData      - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
@@ -7310,33 +7357,29 @@ LOCAL void onProjectClose(GObject  *object,
 
 LOCAL void onProjectSave(GObject  *object,
                          GKeyFile *configuration,
-                         gpointer data
+                         gpointer userData
                         )
 {
   UNUSED_VARIABLE(object);
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   // save values
   projectConfigurationSave(configuration);
-
-  // update view
-  updateToolbarButtons();
-  updateToolbarMenuItems();
 }
 
 /***********************************************************************\
 * Name   : init
 * Purpose: plugin init
-* Input  : plugin - Geany plugin
-*          data   - user data (not used)
+* Input  : plugin   - Geany plugin
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean init(GeanyPlugin *plugin, gpointer data)
+LOCAL gboolean init(GeanyPlugin *plugin, gpointer userData)
 {
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   if (!Execute_init())
   {
@@ -7516,16 +7559,16 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer data)
 /***********************************************************************\
 * Name   : cleanup
 * Purpose: plugin cleanup
-* Input  : plugin - Geany plugin
-*          data   - user data (not used)
+* Input  : plugin   - Geany plugin
+*          userData - user data (not used)
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void cleanup(GeanyPlugin *plugin, gpointer data)
+LOCAL void cleanup(GeanyPlugin *plugin, gpointer userData)
 {
-  UNUSED_VARIABLE(data);
+  UNUSED_VARIABLE(userData);
 
   // done GUI elements
   doneTab(plugin);
