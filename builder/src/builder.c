@@ -1570,8 +1570,6 @@ LOCAL gboolean dialogCommand(GtkWindow   *parentWindow,
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetInputCustomText), *inputCustomText);
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRunInDockerContainer), *runInDockerContainer);
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetRunRemote), *runRemote);
-// TODO:
-gtk_widget_set_sensitive(widgetRunRemote, FALSE);
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(widgetParseOutput), *parseOutput);
 
   // run dialog
@@ -4107,7 +4105,7 @@ LOCAL void attachDockerContainer(const gchar *dockerContainerId)
 {
   if (pluginData.attachedDockerContainerId != NULL) g_free((gchar*)pluginData.attachedDockerContainerId);
   pluginData.attachedDockerContainerId = dockerContainerId;
-  gchar *text = g_strdup_printf(_("Detach from docker container '%s'"), pluginData.attachedDockerContainerId);
+  gchar *text = g_strdup_printf(_("Attached to docker container '%s'"), pluginData.attachedDockerContainerId);
   {
     gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.dockerContainer),text);
   }
@@ -4682,7 +4680,11 @@ LOCAL void onMenuItemRemote(GtkWidget *widget,
                         )
          )
       {
-        gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.remote),_("Disconnect remote"));
+        gchar *text = g_strdup_printf(_("Connected to remote '%s:%d'"), pluginData.projectProperties.remote.hostName->str,pluginData.projectProperties.remote.hostPort);
+        {
+          gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.remote),text);
+        }
+        g_free(text);
       }
       else
       {
@@ -5169,11 +5171,8 @@ LOCAL void updateEnableToolbarButtons()
                            MODEL_END
                           );
 
-        enabled =    !runInDockerContainer
-                  || (pluginData.attachedDockerContainerId != NULL)
-                  || !runRemote
-// TODO:
-|| FALSE;//                  || (pluginData.remoteSession != NULL);
+        enabled =    (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
+                  && (!runRemote            || Remote_isConnected());
       }
     }
 
@@ -5216,7 +5215,7 @@ LOCAL void updateToolbarButtons()
   pluginData.widgets.buttons.abort = NULL;
 
   gboolean    isFirst = TRUE;
-  guint       i = 0;
+  guint       i       = 0;
   GtkTreeIter treeIterator;
 
   // command buttons
@@ -5226,10 +5225,14 @@ LOCAL void updateToolbarButtons()
     {
       gchar    *title;
       gboolean showButton;
+      gboolean runInDockerContainer;
+      gboolean runRemote;
       gtk_tree_model_get(GTK_TREE_MODEL(pluginData.configuration.commandStore),
                          &treeIterator,
-                         MODEL_COMMAND_TITLE,       &title,
-                         MODEL_COMMAND_SHOW_BUTTON, &showButton,
+                         MODEL_COMMAND_TITLE,                   &title,
+                         MODEL_COMMAND_SHOW_BUTTON,             &showButton,
+                         MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
+                         MODEL_COMMAND_RUN_REMOTE,              &runRemote,
                          MODEL_END
                         );
       g_assert(title != NULL);
@@ -5246,6 +5249,10 @@ LOCAL void updateToolbarButtons()
           g_object_set_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "listStore", pluginData.configuration.commandStore);
           g_object_set_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString", commandIteratorString);
           plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
+          gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(pluginData.widgets.buttons.commands[i]),
+                                          (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
+                                       && (!runRemote            || Remote_isConnected())
+                                      );         
           gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
           plugin_signal_connect(geany_plugin,
                                 G_OBJECT(pluginData.widgets.buttons.commands[i]),
@@ -5373,11 +5380,8 @@ LOCAL void updateEnableToolbarMenuItems()
                         );
 
       gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.commands[i]),
-                                  !runInDockerContainer
-                               || (pluginData.attachedDockerContainerId != NULL)
-                               || !runRemote
-// TODO:
-//                               || (pluginData.remoteSession != NULL
+                                  (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
+                               && (!runRemote            || Remote_isConnected())
                               );
     }
 
@@ -7263,6 +7267,10 @@ LOCAL void onProjectDialogConfirmed(GObject   *object,
   // update values
   g_string_assign(pluginData.projectProperties.errorRegEx,   gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), "error_regex"))));
   g_string_assign(pluginData.projectProperties.warningRegEx, gtk_entry_get_text(GTK_ENTRY(g_object_get_data(G_OBJECT(pluginData.widgets.projectProperties), "warning_regex"))));
+
+  // update enable buttons/menu items
+  updateEnableToolbarButtons();
+  updateEnableToolbarMenuItems();
 }
 
 /***********************************************************************\
