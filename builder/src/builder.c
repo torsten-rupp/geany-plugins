@@ -1229,7 +1229,6 @@ LOCAL void projectConfigurationLoad(GKeyFile *configuration)
                      );
     }
   }
-  g_free((gchar*)homeDirectory);
 }
 
 /***********************************************************************\
@@ -5252,7 +5251,7 @@ LOCAL void updateToolbarButtons()
           gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(pluginData.widgets.buttons.commands[i]),
                                           (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
                                        && (!runRemote            || Remote_isConnected())
-                                      );         
+                                      );
           gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
           plugin_signal_connect(geany_plugin,
                                 G_OBJECT(pluginData.widgets.buttons.commands[i]),
