@@ -5248,10 +5248,10 @@ LOCAL void updateToolbarButtons()
           g_object_set_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "listStore", pluginData.configuration.commandStore);
           g_object_set_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString", commandIteratorString);
           plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
-          gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(pluginData.widgets.buttons.commands[i]),
-                                          (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
-                                       && (!runRemote            || Remote_isConnected())
-                                      );
+          gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.commands[i]),
+                                      (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
+                                   && (!runRemote            || Remote_isConnected())
+                                  );
           gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
           plugin_signal_connect(geany_plugin,
                                 G_OBJECT(pluginData.widgets.buttons.commands[i]),
