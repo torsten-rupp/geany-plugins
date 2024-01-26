@@ -4608,127 +4608,137 @@ LOCAL void onMenuItemRemote(GtkWidget *widget,
     gtk_entry_set_text(GTK_ENTRY(widgetPrivateKey),pluginData.projectProperties.remote.privateKey->str);
     gtk_entry_set_text(GTK_ENTRY(widgetPassword),pluginData.projectProperties.remote.password->str);
 
-    // set focus
-    if      (stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetHostName))))
+    gboolean retry = FALSE;
+    do
     {
-      gtk_widget_grab_focus(widgetHostName);
-    }
-    else if (stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetUserName))))
-    {
-      gtk_widget_grab_focus(widgetUserName);
-    }
-    else if (   stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPublicKey)))
-             && stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPassword)))
-            )
-    {
-      gtk_widget_grab_focus(widgetPublicKey);
-    }
-    else if (   stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPrivateKey)))
-             && stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPassword)))
-            )
-    {
-      gtk_widget_grab_focus(widgetPrivateKey);
-    }
-    else
-    {
-      gtk_widget_grab_focus(widgetPassword);
-    }
-
-    // run dialog
-    result = gtk_dialog_run(GTK_DIALOG(dialog));
-    if (result == GTK_RESPONSE_ACCEPT)
-    {
-      // get remote data
-      g_string_assign(pluginData.projectProperties.remote.hostName,gtk_entry_get_text(GTK_ENTRY(widgetHostName)));
-      pluginData.projectProperties.remote.hostPort = (guint)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widgetHostPort));
-      g_string_assign(pluginData.projectProperties.remote.userName,gtk_entry_get_text(GTK_ENTRY(widgetUserName)));
-      g_string_assign(pluginData.projectProperties.remote.publicKey,gtk_entry_get_text(GTK_ENTRY(widgetPublicKey)));
-      g_string_assign(pluginData.projectProperties.remote.privateKey,gtk_entry_get_text(GTK_ENTRY(widgetPrivateKey)));
-      g_string_assign(pluginData.projectProperties.remote.password,gtk_entry_get_text(GTK_ENTRY(widgetPassword)));
-
-      if (pluginData.projectProperties.filePath != NULL)
+      // set focus
+      if      (stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetHostName))))
       {
-        // save configuration
-        GKeyFile *configuration = g_key_file_new();
-        g_key_file_load_from_file(configuration, pluginData.projectProperties.filePath, G_KEY_FILE_NONE, NULL);
-// TODO: use configurationSaveString/Integer
-        g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remoteHostName",  pluginData.projectProperties.remote.hostName->str);
-        g_key_file_set_integer(configuration, CONFIGURATION_GROUP_BUILDER, "remoteHostPort",  pluginData.projectProperties.remote.hostPort);
-        g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remoteUserName",  pluginData.projectProperties.remote.userName->str);
-        g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remotePulicKey",  pluginData.projectProperties.remote.publicKey->str);
-        g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remotePrivateKey",pluginData.projectProperties.remote.privateKey->str);
-
-// TODO: use g_key_file_save_to_file()?
-        gchar *configurationData = g_key_file_to_data(configuration, NULL, NULL);
-        utils_write_file(geany_data->app->project->file_name, configurationData);
-        g_free(configurationData);
-
-        g_key_file_free(configuration);
+        gtk_widget_grab_focus(widgetHostName);
       }
-
-      // connect to remote
-      gchar errorMessage[256];
-      if (Remote_connect(pluginData.projectProperties.remote.hostName->str,
-                         pluginData.projectProperties.remote.hostPort,
-                         pluginData.projectProperties.remote.userName->str,
-                         pluginData.projectProperties.remote.publicKey->str,
-                         pluginData.projectProperties.remote.privateKey->str,
-                         pluginData.projectProperties.remote.password->str,
-                         errorMessage,
-                         sizeof(errorMessage)
-                        )
-         )
+      else if (stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetUserName))))
       {
-        gchar *text = g_strdup_printf(_("Connected to remote '%s:%d'"), pluginData.projectProperties.remote.hostName->str,pluginData.projectProperties.remote.hostPort);
-        {
-          gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.remote),text);
-        }
-        g_free(text);
+        gtk_widget_grab_focus(widgetUserName);
+      }
+      else if (   stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPublicKey)))
+               && stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPassword)))
+              )
+      {
+        gtk_widget_grab_focus(widgetPublicKey);
+      }
+      else if (   stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPrivateKey)))
+               && stringIsEmpty(gtk_entry_get_text(GTK_ENTRY(widgetPassword)))
+              )
+      {
+        gtk_widget_grab_focus(widgetPrivateKey);
       }
       else
       {
-        GtkWidget *errorDialog = gtk_message_dialog_new(GTK_WINDOW(geany_data->main_widgets->window),
-                                                        GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                        GTK_MESSAGE_ERROR,
-                                                        GTK_BUTTONS_CLOSE,
-                                                        "Connect to %s:%d failed\n\nError: %s",
-                                                        pluginData.projectProperties.remote.hostName->str,
-                                                        pluginData.projectProperties.remote.hostPort,
-                                                        errorMessage
-                                                       );
-        gtk_dialog_run(GTK_DIALOG(errorDialog));
-        gtk_widget_destroy(errorDialog);
-
-        gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.remote),FALSE);
+        gtk_widget_grab_focus(widgetPassword);
       }
+      gtk_window_present(GTK_WINDOW(dialog));
 
-      if (pluginData.attachedDockerContainerId != NULL)
+      // run dialog
+      result = gtk_dialog_run(GTK_DIALOG(dialog));
+      if (result == GTK_RESPONSE_ACCEPT)
       {
-        GtkWidget *confirmDialog = gtk_message_dialog_new(GTK_WINDOW(geany_data->main_widgets->window),
-                                                          GTK_DIALOG_DESTROY_WITH_PARENT,
-                                                          GTK_MESSAGE_QUESTION,
-                                                          GTK_BUTTONS_OK_CANCEL,
-                                                          "Attached to the docker container '%s'. Reattach on remote?",
-                                                          pluginData.attachedDockerContainerId
-                                                         );
-        result = gtk_dialog_run(GTK_DIALOG(confirmDialog));
-        if (result == GTK_RESPONSE_OK)
-        {
-          detachDockerContainer();
+        // get remote data
+        g_string_assign(pluginData.projectProperties.remote.hostName,gtk_entry_get_text(GTK_ENTRY(widgetHostName)));
+        pluginData.projectProperties.remote.hostPort = (guint)gtk_spin_button_get_value(GTK_SPIN_BUTTON(widgetHostPort));
+        g_string_assign(pluginData.projectProperties.remote.userName,gtk_entry_get_text(GTK_ENTRY(widgetUserName)));
+        g_string_assign(pluginData.projectProperties.remote.publicKey,gtk_entry_get_text(GTK_ENTRY(widgetPublicKey)));
+        g_string_assign(pluginData.projectProperties.remote.privateKey,gtk_entry_get_text(GTK_ENTRY(widgetPrivateKey)));
+        g_string_assign(pluginData.projectProperties.remote.password,gtk_entry_get_text(GTK_ENTRY(widgetPassword)));
 
-          gchar *dockerContainerId = attachDockerContainerDialog();
-          if (dockerContainerId != NULL)
+        if (pluginData.projectProperties.filePath != NULL)
+        {
+          // save configuration
+          GKeyFile *configuration = g_key_file_new();
+          g_key_file_load_from_file(configuration, pluginData.projectProperties.filePath, G_KEY_FILE_NONE, NULL);
+  // TODO: use configurationSaveString/Integer
+          g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remoteHostName",  pluginData.projectProperties.remote.hostName->str);
+          g_key_file_set_integer(configuration, CONFIGURATION_GROUP_BUILDER, "remoteHostPort",  pluginData.projectProperties.remote.hostPort);
+          g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remoteUserName",  pluginData.projectProperties.remote.userName->str);
+          g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remotePulicKey",  pluginData.projectProperties.remote.publicKey->str);
+          g_key_file_set_string (configuration, CONFIGURATION_GROUP_BUILDER, "remotePrivateKey",pluginData.projectProperties.remote.privateKey->str);
+
+  // TODO: use g_key_file_save_to_file()?
+          gchar *configurationData = g_key_file_to_data(configuration, NULL, NULL);
+          utils_write_file(geany_data->app->project->file_name, configurationData);
+          g_free(configurationData);
+
+          g_key_file_free(configuration);
+        }
+
+        // connect to remote
+        gchar errorMessage[256];
+        if (Remote_connect(pluginData.projectProperties.remote.hostName->str,
+                           pluginData.projectProperties.remote.hostPort,
+                           pluginData.projectProperties.remote.userName->str,
+                           pluginData.projectProperties.remote.publicKey->str,
+                           pluginData.projectProperties.remote.privateKey->str,
+                           pluginData.projectProperties.remote.password->str,
+                           errorMessage,
+                           sizeof(errorMessage)
+                          )
+           )
+        {
+          gchar *text = g_strdup_printf(_("Connected to remote '%s:%d'"), pluginData.projectProperties.remote.hostName->str,pluginData.projectProperties.remote.hostPort);
           {
-            attachDockerContainer(dockerContainerId);
+            gtk_menu_item_set_label(GTK_MENU_ITEM(pluginData.widgets.menuItems.remote),text);
+          }
+          g_free(text);
+
+          if (pluginData.attachedDockerContainerId != NULL)
+          {
+            GtkWidget *confirmDialog = gtk_message_dialog_new(GTK_WINDOW(geany_data->main_widgets->window),
+                                                              GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                              GTK_MESSAGE_QUESTION,
+                                                              GTK_BUTTONS_OK_CANCEL,
+                                                              "Attached to the docker container '%s'. Reattach on remote?",
+                                                              pluginData.attachedDockerContainerId
+                                                             );
+            result = gtk_dialog_run(GTK_DIALOG(confirmDialog));
+            if (result == GTK_RESPONSE_OK)
+            {
+              detachDockerContainer();
+
+              gchar *dockerContainerId = attachDockerContainerDialog();
+              if (dockerContainerId != NULL)
+              {
+                attachDockerContainer(dockerContainerId);
+              }
+            }
+            gtk_widget_destroy(confirmDialog);
           }
         }
-        gtk_widget_destroy(confirmDialog);
+        else
+        {
+          GtkWidget *errorDialog = gtk_message_dialog_new(GTK_WINDOW(geany_data->main_widgets->window),
+                                                          GTK_DIALOG_DESTROY_WITH_PARENT,
+                                                          GTK_MESSAGE_ERROR,
+                                                          GTK_BUTTONS_CLOSE,
+                                                          "Connect to %s:%d failed\n\nError: %s",
+                                                          pluginData.projectProperties.remote.hostName->str,
+                                                          pluginData.projectProperties.remote.hostPort,
+                                                          errorMessage
+                                                         );
+          gtk_dialog_run(GTK_DIALOG(errorDialog));
+          gtk_widget_destroy(errorDialog);
+
+          gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.remote),FALSE);
+
+          retry = TRUE;
+        }
+      }
+      else
+      {
+        gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.remote),FALSE);
+
+        retry = FALSE;
       }
     }
-    else
-    {
-      gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(pluginData.widgets.menuItems.remote),FALSE);
-    }
+    while (retry);
 
     // free resources
     gtk_widget_destroy(dialog);
@@ -5637,10 +5647,8 @@ LOCAL void updateToolbarMenuItems()
 
 LOCAL void initToolbar()
 {
-  // create toolbar buttons
+  // update view
   updateToolbarButtons();
-
-  // create toolbar button menu attached to first button
   updateToolbarMenuItems();
 }
 
@@ -7372,6 +7380,10 @@ LOCAL void onProjectSave(GObject  *object,
 
   // save values
   projectConfigurationSave(configuration);
+  
+  // update view
+  updateToolbarButtons();
+  updateToolbarMenuItems();
 }
 
 /***********************************************************************\
