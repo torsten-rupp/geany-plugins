@@ -18,13 +18,19 @@
 
 # C
 C     gcc    error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):.*error:\s*(?<message>.+)$
+C     gcc    extension ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):.*note:\s*(?<message>.+)$
 C     gcc    error     ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):.*error:\s*(?<message>.*)$
+C     gcc    extension ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):.*note:\s*(?<message>.*)$
 C     gcc    warning   ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):.*warning:\s*(?<message>.+)$
+C     gcc    extension ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):.*note:\s*(?<message>.+)$
 C     gcc    extension ^\s+(?<message>.+)$
 
 C     clang error      ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):.*error:\s*(?<message>.+)$
+C     clang extension  ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):.*note:\s*(?<message>.+)$
 C     clang error      ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):.*error:\s*(?<message>.*)$
+C     clang extension  ^(?<filePath>[^:]*):(?<lineNumber>[^:]*):(?<columnNumber>[^:]*):.*note:\s*(?<message>.*)$
 C     clang warning    ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):.*warning:\s*(?<message>.+)$
+C     clang extension  ^(?<filePath>[^:]+):(?<lineNumber>\d+):(?<columnNumber>\d+):.*note:\s*(?<message>.+)$
 C     clang extension  ^\s+(?<message>.+)$
 
 #C     linker error     ^(?<filePath>[^:]+):(?<lineNumber>\d+):\s*(?<message>.+)$
