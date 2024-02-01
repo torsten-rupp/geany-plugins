@@ -133,23 +133,12 @@ const int MODEL_END = -1;
 // key short-cuts
 typedef enum
 {
-  KEY_BINDING_COMMAND,
-  KEY_BINDING_COMMAND1 = KEY_BINDING_COMMAND,
-  KEY_BINDING_COMMAND2,
-  KEY_BINDING_COMMAND3,
-  KEY_BINDING_COMMAND4,
-  KEY_BINDING_COMMAND5,
   KEY_BINDING_BUILD,
-  KEY_BINDING_CLEAN,
-  KEY_BINDING_MAKE_ALL,
-  KEY_BINDING_MAKE_CUSTOM_TARGET,
-  KEY_BINDING_MAKE_OBJECT,
+  KEY_BINDING_ABORT,
   KEY_BINDING_PREV_ERROR,
   KEY_BINDING_NEXT_ERROR,
   KEY_BINDING_PREV_WARNING,
   KEY_BINDING_NEXT_WARNING,
-  KEY_BINDING_RUN,
-  KEY_BINDING_ABORT,
   KEY_BINDING_PROJECT_PROPERTIES,
   KEY_BINDING_PLUGIN_CONFIGURATION,
 
@@ -290,6 +279,9 @@ LOCAL struct
   // build results
   struct
   {
+    GtkListStore *lastCommandListStore;
+    GString      *lastCommandIteratorString;
+
     StringStack  *directoryPrefixStack;
 
     gboolean     showedFirstErrorWarning;
@@ -312,8 +304,6 @@ LOCAL struct
     GtkTreeIter  *lastErrorsWarningsInsertTreeIterator;
     const gchar  *lastErrorsWarningsInsertColor;
     guint        errorWarningIndicatorsCount;
-
-    GString      *lastCustomTarget;
   } build;
 } pluginData;
 
@@ -321,6 +311,8 @@ LOCAL struct
 
 /***************************** Forwards ********************************/
 
+LOCAL void updateKeyBinding(GeanyPlugin *plugin, GtkWidget *buildMenuItem);
+LOCAL void updateToolbarMenuItems();
 LOCAL void updateEnableToolbarButtons();
 LOCAL void updateEnableToolbarMenuItems();
 
@@ -3964,9 +3956,10 @@ LOCAL void onExecuteCommand(GtkWidget *widget, gpointer userData)
 
   UNUSED_VARIABLE(userData);
 
+  // execute command
   GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(widget), "listStore"));
   g_assert(listStore != NULL);
-  gchar        *iteratorString = (gchar*)g_object_get_data(G_OBJECT(widget), "iteratorString");
+  const gchar  *iteratorString = (gchar*)g_object_get_data(G_OBJECT(widget), "iteratorString");
   g_assert(iteratorString != NULL);
 
   GtkTreeIter treeIterator;
@@ -3998,6 +3991,16 @@ LOCAL void onExecuteCommand(GtkWidget *widget, gpointer userData)
 
     g_free(workingDirectory);
     g_free(commandLine);
+  }
+
+  // update key binding for last command
+  if (   (pluginData.build.lastCommandListStore != listStore)
+      || !stringEquals(pluginData.build.lastCommandIteratorString->str,iteratorString)
+     )
+  {
+    pluginData.build.lastCommandListStore = listStore; 
+    g_string_assign(pluginData.build.lastCommandIteratorString,iteratorString);
+    updateToolbarMenuItems();
   }
 }
 
@@ -5084,63 +5087,77 @@ LOCAL void onErrorWarningTreeDoubleClick(GtkTreeView       *treeView,
 
 LOCAL void onKeyBinding(guint keyId)
 {
-  if ((KEY_BINDING_COMMAND <= keyId) && (keyId <= KEY_BINDING_COMMAND+MAX_COMMANDS))
+  switch (keyId)
   {
-// TODO:
-#if 0
-    const Command *command = getCommand(keyId-KEY_BINDING_COMMAND);
-    if (command != NULL)
-    {
-      setEnableToolbar(FALSE);
-      showBuildMessagesTab();
-      executeCommand(command->commandLine,
-                     command->workingDirectory,
-                     NULL,
-                     pluginData.attachedDockerContainerId,
-                     command->parseOutput
-                    );
-    }
-#endif
-  }
-  else
-  {
-    switch (keyId)
-    {
-      case KEY_BINDING_PREV_ERROR:
-        if (pluginData.build.errorsTreeIterorValid)
+    case KEY_BINDING_BUILD:
+      {
+        if (   (pluginData.build.lastCommandListStore != NULL)
+            && !stringIsEmpty(pluginData.build.lastCommandIteratorString->str)
+           )
         {
-          showPrevError();
+          // execute command
+          GtkTreeIter treeIterator;
+          if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(pluginData.build.lastCommandListStore),
+                                                  &treeIterator,
+                                                  pluginData.build.lastCommandIteratorString->str
+                                                 )
+             )
+          {
+            gchar    *commandLine;
+            gchar    *workingDirectory;
+            gboolean parseOutput;
+            gtk_tree_model_get(GTK_TREE_MODEL(pluginData.build.lastCommandListStore),
+                               &treeIterator,
+                               MODEL_COMMAND_COMMAND_LINE,     &commandLine,
+                               MODEL_COMMAND_WORKING_DIRECTORY,&workingDirectory,
+                               MODEL_COMMAND_PARSE_OUTPUT,     &parseOutput,
+                               MODEL_END
+                              );
+
+            setEnableToolbar(FALSE);
+            showBuildMessagesTab();
+            executeCommand(commandLine,
+                           workingDirectory,
+                           NULL,  // customText
+                           pluginData.attachedDockerContainerId,
+                           parseOutput
+                          );
+
+            g_free(workingDirectory);
+            g_free(commandLine);
+          }
         }
-        break;
-
-      case KEY_BINDING_NEXT_ERROR:
-        if (pluginData.build.errorsTreeIterorValid)
-        {
-          showNextError();
-        }
-        break;
-
-      case KEY_BINDING_PREV_WARNING:
-        if (pluginData.build.warningsTreeIterorValid)
-        {
-          showPrevWarning();
-        }
-        break;
-
-      case KEY_BINDING_NEXT_WARNING:
-        if (pluginData.build.warningsTreeIterorValid)
-        {
-          showNextWarning();
-        }
-        break;
-
-      case KEY_BINDING_ABORT:
-        executeCommandAbort();
-        break;
-
-      default:
-        break;
-    }
+      }
+      break;
+    case KEY_BINDING_ABORT:
+      executeCommandAbort();
+      break;
+    case KEY_BINDING_PREV_ERROR:
+      if (pluginData.build.errorsTreeIterorValid)
+      {
+        showPrevError();
+      }
+      break;
+    case KEY_BINDING_NEXT_ERROR:
+      if (pluginData.build.errorsTreeIterorValid)
+      {
+        showNextError();
+      }
+      break;
+    case KEY_BINDING_PREV_WARNING:
+      if (pluginData.build.warningsTreeIterorValid)
+      {
+        showPrevWarning();
+      }
+      break;
+    case KEY_BINDING_NEXT_WARNING:
+      if (pluginData.build.warningsTreeIterorValid)
+      {
+        showNextWarning();
+      }
+      break;
+    default:
+      break;
   }
 }
 
@@ -5263,6 +5280,7 @@ LOCAL void updateToolbarButtons()
                                    && (!runRemote            || Remote_isConnected())
                                   );
           gtk_widget_show(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
+
           plugin_signal_connect(geany_plugin,
                                 G_OBJECT(pluginData.widgets.buttons.commands[i]),
                                 "clicked",
@@ -5418,6 +5436,7 @@ LOCAL void updateToolbarMenuItems()
   }
 
   // create menu
+  GtkWidget *lastCommandMenuItem = NULL;
   GtkWidget *menu = gtk_menu_new();
   {
     guint     i = 0;
@@ -5454,6 +5473,13 @@ LOCAL void updateToolbarMenuItems()
             }
             g_object_set_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "iteratorString", commandIteratorString);
             gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.commands[i]);
+
+            if (   (pluginData.build.lastCommandListStore == pluginData.configuration.commandStore)
+                && stringEquals(pluginData.build.lastCommandIteratorString->str,commandIteratorString)
+               )
+            {
+              lastCommandMenuItem = pluginData.widgets.menuItems.commands[i];
+            }
 
             plugin_signal_connect(geany_plugin,
                                   G_OBJECT(pluginData.widgets.menuItems.commands[i]),
@@ -5506,6 +5532,13 @@ LOCAL void updateToolbarMenuItems()
             }
             g_object_set_data(G_OBJECT(pluginData.widgets.menuItems.commands[i]), "iteratorString", commandIteratorString);
             gtk_container_add(GTK_CONTAINER(menu), pluginData.widgets.menuItems.commands[i]);
+
+            if (   (pluginData.build.lastCommandListStore == pluginData.projectProperties.commandStore)
+                && stringEquals(pluginData.build.lastCommandIteratorString->str,commandIteratorString)
+               )
+            {
+              lastCommandMenuItem = pluginData.widgets.menuItems.commands[i];
+            }
 
             plugin_signal_connect(geany_plugin,
                                   G_OBJECT(pluginData.widgets.menuItems.commands[i]),
@@ -5633,6 +5666,7 @@ LOCAL void updateToolbarMenuItems()
 
   gtk_menu_tool_button_set_menu(GTK_MENU_TOOL_BUTTON(pluginData.widgets.buttons.commands[0]), menu);
 
+  updateKeyBinding(geany_plugin,lastCommandMenuItem);
   updateEnableToolbarMenuItems();
 }
 
@@ -6410,13 +6444,14 @@ LOCAL void initTab(GeanyPlugin *plugin)
 /***********************************************************************\
 * Name   : initKeyBinding
 * Purpose: init key bindings
-* Input  : plugin - Geany plugin
+* Input  : plugin        - Geany plugin
+*          buildMenuItem - build menu item or NULL
 * Output : -
 * Return : -
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void initKeyBinding(GeanyPlugin *plugin)
+LOCAL void initKeyBinding(GeanyPlugin *plugin, GtkWidget *buildMenuItem)
 {
   GeanyKeyGroup *keyGroup;
 
@@ -6424,22 +6459,24 @@ LOCAL void initKeyBinding(GeanyPlugin *plugin)
 
   keyGroup = plugin_set_key_group(plugin, KEY_GROUP_BUILDER, KEY_BINDING_COUNT, NULL);
 
-  for (guint i = 0; i < MAX_COMMANDS; i++)
-  {
-    gchar name[64],title[64];
-
-    g_snprintf(name,sizeof(name),"command%u",i);
-    g_snprintf(title,sizeof(title),"Command %u",i);
-    keybindings_set_item(keyGroup,
-                         KEY_BINDING_COMMAND+i,
-                         onKeyBinding,
-                         0,
-                         0,
-                         name,
-                         title,
-                         pluginData.widgets.menuItems.commands[i]
-                        );
-  }
+  keybindings_set_item(keyGroup,
+                       KEY_BINDING_BUILD,
+                       onKeyBinding,
+                       0,
+                       0,
+                       "build",
+                       _("Build"),
+                       buildMenuItem
+                      );
+  keybindings_set_item(keyGroup,
+                       KEY_BINDING_ABORT,
+                       onKeyBinding,
+                       0,
+                       0,
+                       "abort",
+                       _("Abort"),
+                       pluginData.widgets.menuItems.abort
+                      );
   keybindings_set_item(keyGroup,
                        KEY_BINDING_PREV_ERROR,
                        onKeyBinding,
@@ -6477,15 +6514,6 @@ LOCAL void initKeyBinding(GeanyPlugin *plugin)
                        pluginData.widgets.menuItems.showNextWarning
                       );
   keybindings_set_item(keyGroup,
-                       KEY_BINDING_ABORT,
-                       onKeyBinding,
-                       0,
-                       0,
-                       "abort",
-                       _("Abort"),
-                       pluginData.widgets.menuItems.abort
-                      );
-  keybindings_set_item(keyGroup,
                        KEY_BINDING_PROJECT_PROPERTIES,
                        onKeyBinding,
                        0,
@@ -6503,6 +6531,21 @@ LOCAL void initKeyBinding(GeanyPlugin *plugin)
                        _("Plugin configuration"),
                        pluginData.widgets.menuItems.configuration
                       );
+}
+
+/***********************************************************************\
+* Name   : updateKeyBinding
+* Purpose: update key binding
+* Input  : plugin - Geany plugin
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void updateKeyBinding(GeanyPlugin *plugin, GtkWidget *buildMenuItem)
+{
+  initKeyBinding(plugin,buildMenuItem);
+  keybindings_load_keyfile();
 }
 
 /***********************************************************************\
@@ -7380,7 +7423,7 @@ LOCAL void onProjectSave(GObject  *object,
 
   // save values
   projectConfigurationSave(configuration);
-  
+
   // update view
   updateToolbarButtons();
   updateToolbarMenuItems();
@@ -7513,6 +7556,8 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer userData)
 
   pluginData.attachedDockerContainerId              = NULL;
 
+  pluginData.build.lastCommandListStore             = NULL;
+  pluginData.build.lastCommandIteratorString        = g_string_new(NULL);
   pluginData.build.directoryPrefixStack             = string_stack_new();
   pluginData.build.messagesStore = gtk_list_store_new(MODEL_MESSAGE_COUNT,
                                                       G_TYPE_STRING,  // color
@@ -7545,7 +7590,6 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer userData)
   pluginData.build.lastErrorsWarningsInsertStore        = NULL;
   pluginData.build.lastErrorsWarningsInsertTreeIterator = NULL;
   pluginData.build.errorWarningIndicatorsCount          = 0;
-  pluginData.build.lastCustomTarget                     = g_string_new(NULL);
 
   for (guint i = 0; i < ARRAY_SIZE(REGEX_BUILTIN); i++)
   {
@@ -7562,12 +7606,13 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer userData)
   // load configuration
   configurationLoad();
 
+  // init key binding
+fprintf(stderr,"%s:%d: kkkkkkkk\n",__FILE__,__LINE__);
+  initKeyBinding(plugin,NULL);
+
   // init GUI elements
   initToolbar(plugin);
   initTab(plugin);
-
-  // init key binding
-  initKeyBinding(plugin);
 
 //fprintf(stderr,"%s:%d: ----------------------------------------------\n",__FILE__,__LINE__);
 //testSSH2();
@@ -7594,8 +7639,8 @@ LOCAL void cleanup(GeanyPlugin *plugin, gpointer userData)
   doneToolbar(plugin);
 
   // free resources
-  g_string_free(pluginData.build.lastCustomTarget, TRUE);
   string_stack_free(pluginData.build.directoryPrefixStack);
+  g_string_free(pluginData.build.lastCommandIteratorString, TRUE);
   gtk_tree_path_free(pluginData.build.messagesTreePath);
   g_free((gchar*)pluginData.attachedDockerContainerId);
   g_string_free(pluginData.projectProperties.remote.password, TRUE);
