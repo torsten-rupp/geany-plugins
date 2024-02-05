@@ -271,6 +271,8 @@ LOCAL struct
     GtkWidget   *warningsTabLabel;
     guint       warningsTabIndex;
     GtkWidget   *warningsTree;
+
+    guint       disableCounter;
   } widgets;
 
   // attached docker container id
@@ -1285,21 +1287,17 @@ LOCAL void setEnableAbort(gboolean enabled)
 
 LOCAL void setEnableToolbar(gboolean enabled)
 {
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  if (enabled)
   {
-    if (pluginData.widgets.buttons.commands[i] != NULL)
-    {
-      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.commands[i]), enabled);
-    }
+    g_assert(pluginData.widgets.disableCounter > 0);
+    g_atomic_int_add(&pluginData.widgets.disableCounter, -1);
   }
-  for (guint i = 0; i < MAX_COMMANDS; i++)
+  else
   {
-    if (pluginData.widgets.buttons.projectCommands[i] != NULL)
-    {
-      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]), enabled);
-    }
+    g_atomic_int_add(&pluginData.widgets.disableCounter, 1);
   }
-  setEnableAbort(!enabled);
+
+  updateEnableToolbarButtons();
 }
 
 /***********************************************************************\
@@ -3998,7 +3996,7 @@ LOCAL void onExecuteCommand(GtkWidget *widget, gpointer userData)
       || !stringEquals(pluginData.build.lastCommandIteratorString->str,iteratorString)
      )
   {
-    pluginData.build.lastCommandListStore = listStore; 
+    pluginData.build.lastCommandListStore = listStore;
     g_string_assign(pluginData.build.lastCommandIteratorString,iteratorString);
     updateToolbarMenuItems();
   }
@@ -5172,44 +5170,84 @@ LOCAL void onKeyBinding(guint keyId)
 
 LOCAL void updateEnableToolbarButtons()
 {
-  guint i = 0;
-  while ((i < MAX_COMMANDS) && (pluginData.widgets.buttons.commands[i] != NULL))
+  gboolean enableWidgets = pluginData.widgets.disableCounter == 0;
+
+  for (guint i = 0; i < MAX_COMMANDS; i++)
   {
-    GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "listStore"));
-    gchar        *iteratorString = (gchar*)g_object_get_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString");
-
-    gboolean enabled = FALSE;
-    if ((listStore != NULL) && (iteratorString != NULL))
+    if (pluginData.widgets.buttons.commands[i] != NULL)
     {
-      GtkTreeIter treeIterator;
-      if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(listStore),
-                                              &treeIterator,
-                                              iteratorString
-                                             )
-         )
+      GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "listStore"));
+      gchar        *iteratorString = (gchar*)g_object_get_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString");
+
+      gboolean enabled = FALSE;
+      if ((listStore != NULL) && (iteratorString != NULL))
       {
-        gboolean runInDockerContainer;
-        gboolean runRemote;
-        gtk_tree_model_get(GTK_TREE_MODEL(listStore),
-                           &treeIterator,
-                           MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
-                           MODEL_COMMAND_RUN_REMOTE,              &runRemote,
-                           MODEL_END
-                          );
-
-        enabled =    (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
-                  && (!runRemote            || Remote_isConnected());
-      }
-    }
-
-    gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.commands[i]),
-                             (i == 0) || enabled
+        GtkTreeIter treeIterator;
+        if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(listStore),
+                                                &treeIterator,
+                                                iteratorString
+                                               )
+           )
+        {
+          gboolean runInDockerContainer;
+          gboolean runRemote;
+          gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                             &treeIterator,
+                             MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
+                             MODEL_COMMAND_RUN_REMOTE,              &runRemote,
+                             MODEL_END
                             );
 
-    i++;
+          enabled =    enableWidgets
+                    && (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
+                    && (!runRemote            || Remote_isConnected());
+        }
+      }
+
+      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.commands[i]),
+                               (i == 0) || enabled
+                              );
+
+    }
   }
 
-  gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.abort), FALSE);
+  for (guint i = 0; i < MAX_COMMANDS; i++)
+  {
+    if (pluginData.widgets.buttons.projectCommands[i] != NULL)
+    {
+      GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(pluginData.widgets.buttons.projectCommands[i]), "listStore"));
+      gchar        *iteratorString = (gchar*)g_object_get_data(G_OBJECT(pluginData.widgets.buttons.projectCommands[i]), "iteratorString");
+
+      gboolean enabled = FALSE;
+      if ((listStore != NULL) && (iteratorString != NULL))
+      {
+        GtkTreeIter treeIterator;
+        if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(listStore),
+                                                &treeIterator,
+                                                iteratorString
+                                               )
+           )
+        {
+          gboolean runInDockerContainer;
+          gboolean runRemote;
+          gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                             &treeIterator,
+                             MODEL_COMMAND_RUN_IN_DOCKER_CONTAINER, &runInDockerContainer,
+                             MODEL_COMMAND_RUN_REMOTE,              &runRemote,
+                             MODEL_END
+                            );
+
+          enabled =    enableWidgets
+                    && (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
+                    && (!runRemote            || Remote_isConnected());
+        }
+      }
+
+      gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.projectCommands[i]), enabled);
+    }
+  }
+
+  setEnableAbort(!enableWidgets);
 }
 
 /***********************************************************************\
@@ -6581,12 +6619,12 @@ LOCAL void doneTab(GeanyPlugin *plugin)
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void  configureCellRendererBoolean(GtkTreeViewColumn *cellLayout,
-                                         GtkCellRenderer   *cellRenderer,
-                                         GtkTreeModel      *treeModel,
-                                         GtkTreeIter       *treeIterator,
-                                         gpointer           userData
-                                        )
+LOCAL void configureCellRendererBoolean(GtkTreeViewColumn *cellLayout,
+                                        GtkCellRenderer   *cellRenderer,
+                                        GtkTreeModel      *treeModel,
+                                        GtkTreeIter       *treeIterator,
+                                        gpointer           userData
+                                       )
 {
   guint modelIndex = GPOINTER_TO_UINT(userData);
 
@@ -7551,6 +7589,7 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer userData)
     pluginData.widgets.buttons.commands[i]   = NULL;
   }
   pluginData.widgets.buttons.abort                  = NULL;
+  pluginData.widgets.disableCounter                 = 0;
   pluginData.widgets.projectProperties              = NULL;
   pluginData.widgets.showProjectPropertiesTab       = FALSE;
 
@@ -7607,7 +7646,6 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer userData)
   configurationLoad();
 
   // init key binding
-fprintf(stderr,"%s:%d: kkkkkkkk\n",__FILE__,__LINE__);
   initKeyBinding(plugin,NULL);
 
   // init GUI elements
