@@ -225,11 +225,11 @@ gchar *string_stack_top(StringStack *stringStack);
 * Name   : getAbsoluteDirectory
 * Purpose: get absolute directory with current working directory or
 *          (sub-)directiry
-* Input  : workingDirectory - working directory
-*          directory        - absolute or relative directory
+* Input  : directory - absolute or relative directory
+*          ...       - optional addition directories
 * Output : -
 * Return : absolute directory (when possible)
-* Notes  : -
+* Notes  : last optional directory must be NULL!
 \***********************************************************************/
 
 gchar *getAbsoluteDirectory(const gchar *directory,

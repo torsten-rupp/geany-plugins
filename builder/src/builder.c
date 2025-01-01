@@ -3502,7 +3502,8 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
         case REGEX_TYPE_ERROR:
           // insert error message
           absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                                   string_stack_top(pluginData.build.directoryPrefixStack)
+                                                   string_stack_top(pluginData.build.directoryPrefixStack),
+                                                   NULL
                                                   );
           gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
                                             &pluginData.build.insertIterator,
@@ -3538,7 +3539,8 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
         case REGEX_TYPE_WARNING:
           // insert warning message
           absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                                   string_stack_top(pluginData.build.directoryPrefixStack)
+                                                   string_stack_top(pluginData.build.directoryPrefixStack),
+                                                   NULL
                                                   );
           gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
                                             &pluginData.build.insertIterator,
@@ -3578,7 +3580,8 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
              )
           {
             absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                                     string_stack_top(pluginData.build.directoryPrefixStack)
+                                                     string_stack_top(pluginData.build.directoryPrefixStack),
+                                                   NULL
                                                     );
             gtk_tree_store_insert_with_values(pluginData.build.lastErrorsWarningsInsertStore,
                                               NULL,
@@ -3614,7 +3617,8 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
     {
       // insert error message
       absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                               string_stack_top(pluginData.build.directoryPrefixStack)
+                                               string_stack_top(pluginData.build.directoryPrefixStack),
+                                               NULL
                                               );
       gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
                                         &pluginData.build.insertIterator,
@@ -3661,7 +3665,8 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
     {
       // insert warning message
       absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                               string_stack_top(pluginData.build.directoryPrefixStack)
+                                               string_stack_top(pluginData.build.directoryPrefixStack),
+                                               NULL
                                               );
       gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
                                         &pluginData.build.insertIterator,
