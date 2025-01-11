@@ -1272,6 +1272,9 @@ LOCAL void projectConfigurationSave(GKeyFile *configuration)
 
 LOCAL void setEnableAbort(gboolean enabled)
 {
+  g_assert(pluginData.widgets.buttons.abort != NULL);
+  g_assert(pluginData.widgets.menuItems.abort != NULL);
+
   gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.abort), enabled);
   gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.abort), enabled);
 }
@@ -5252,7 +5255,7 @@ LOCAL void updateEnableToolbarButtons()
     }
   }
 
-  setEnableAbort(!enableWidgets);
+  gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.abort), enableWidgets);
 }
 
 /***********************************************************************\
