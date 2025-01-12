@@ -1301,6 +1301,7 @@ LOCAL void setEnableToolbar(gboolean enabled)
   }
 
   updateEnableToolbarButtons();
+  updateEnableToolbarMenuItems();
 }
 
 /***********************************************************************\
@@ -5255,7 +5256,7 @@ LOCAL void updateEnableToolbarButtons()
     }
   }
 
-  gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.abort), enableWidgets);
+  gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.buttons.abort), !enableWidgets);
 }
 
 /***********************************************************************\
@@ -5428,6 +5429,8 @@ LOCAL void updateToolbarButtons()
 
 LOCAL void updateEnableToolbarMenuItems()
 {
+  gboolean enableWidgets = pluginData.widgets.disableCounter == 0;
+
   guint i = 0;
   while ((i < MAX_COMMANDS) && (pluginData.widgets.menuItems.commands[i] != NULL))
   {
@@ -5453,7 +5456,8 @@ LOCAL void updateEnableToolbarMenuItems()
                         );
 
       gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.commands[i]),
-                                  (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
+                                  enableWidgets
+                               && (!runInDockerContainer || (pluginData.attachedDockerContainerId != NULL))
                                && (!runRemote            || Remote_isConnected())
                               );
     }
@@ -5461,7 +5465,7 @@ LOCAL void updateEnableToolbarMenuItems()
     i++;
   }
 
-  gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.abort), FALSE);
+  gtk_widget_set_sensitive(GTK_WIDGET(pluginData.widgets.menuItems.abort), !enableWidgets);
 }
 
 /***********************************************************************\
