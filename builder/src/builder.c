@@ -1208,6 +1208,9 @@ LOCAL void projectConfigurationLoad(GKeyFile *configuration)
   const gchar *homeDirectory = g_get_home_dir();
   if (homeDirectory != NULL)
   {
+    g_assert(pluginData.projectProperties.remote.publicKey != NULL);
+    g_assert(pluginData.projectProperties.remote.privateKey != NULL);
+
     if (stringIsEmpty(pluginData.projectProperties.remote.publicKey->str))
     {
       g_string_printf(pluginData.projectProperties.remote.publicKey,
@@ -5392,8 +5395,8 @@ LOCAL void updateToolbarButtons()
     while (gtk_tree_model_iter_next(GTK_TREE_MODEL(pluginData.projectProperties.commandStore), &treeIterator));
   }
 
-  // add default button
-  if (i <= 0)
+  // add default button if there is no other button
+  if (i == 0)
   {
     pluginData.widgets.buttons.commands[i] = gtk_menu_tool_button_new(NULL, _("Builder"));
     plugin_add_toolbar_item(geany_plugin, GTK_TOOL_ITEM(pluginData.widgets.buttons.commands[i]));
@@ -5750,6 +5753,21 @@ LOCAL void doneToolbar(GeanyPlugin *plugin)
   g_assert(plugin != NULL);
 
   UNUSED_VARIABLE(plugin);
+
+  if (pluginData.widgets.buttons.abort != NULL)
+  {
+    gtk_widget_destroy(GTK_WIDGET(pluginData.widgets.buttons.abort));
+  }
+
+  for (gint i = MAX_COMMANDS - 1; i >= 0; i--)
+  {
+    if (pluginData.widgets.buttons.commands[i] != NULL)
+    {
+      gchar *commandIteratorString = g_object_get_data(G_OBJECT(pluginData.widgets.buttons.commands[i]), "iteratorString");
+      gtk_widget_destroy(GTK_WIDGET(pluginData.widgets.buttons.commands[i]));
+      g_free(commandIteratorString);
+    }
+  }
 }
 
 /***********************************************************************\
