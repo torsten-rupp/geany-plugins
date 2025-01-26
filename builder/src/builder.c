@@ -1308,6 +1308,20 @@ LOCAL void setEnableToolbar(gboolean enabled)
 }
 
 /***********************************************************************\
+* Name   : isEnabledToolbar
+* Purpose: check if toolbar is enabled
+* Input  : -
+* Output : -
+* Return : TRUE iff enabled
+* Notes  : -
+\***********************************************************************/
+
+LOCAL_INLINE bool isEnabledToolbar()
+{
+  return pluginData.widgets.disableCounter == 0;
+}
+
+/***********************************************************************\
 * Name   : printMessage
 * Purpose: print message to message tab
 * Input  : format - printf-like format string
@@ -3966,51 +3980,54 @@ LOCAL void onExecuteCommand(GtkWidget *widget, gpointer userData)
 
   UNUSED_VARIABLE(userData);
 
-  // execute command
-  GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(widget), "listStore"));
-  g_assert(listStore != NULL);
-  const gchar  *iteratorString = (gchar*)g_object_get_data(G_OBJECT(widget), "iteratorString");
-  g_assert(iteratorString != NULL);
-
-  GtkTreeIter treeIterator;
-  if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(listStore),
-                                          &treeIterator,
-                                          iteratorString
-                                         )
-     )
+  if (isEnabledToolbar())
   {
-    gchar    *commandLine;
-    gchar    *workingDirectory;
-    gboolean parseOutput;
-    gtk_tree_model_get(GTK_TREE_MODEL(listStore),
-                       &treeIterator,
-                       MODEL_COMMAND_COMMAND_LINE,     &commandLine,
-                       MODEL_COMMAND_WORKING_DIRECTORY,&workingDirectory,
-                       MODEL_COMMAND_PARSE_OUTPUT,     &parseOutput,
-                       MODEL_END
-                      );
+    // execute command
+    GtkListStore *listStore      = GTK_LIST_STORE(g_object_get_data(G_OBJECT(widget), "listStore"));
+    g_assert(listStore != NULL);
+    const gchar  *iteratorString = (gchar*)g_object_get_data(G_OBJECT(widget), "iteratorString");
+    g_assert(iteratorString != NULL);
 
-    setEnableToolbar(FALSE);
-    showBuildMessagesTab();
-    executeCommand(commandLine,
-                   workingDirectory,
-                   NULL,  // customText
-                   pluginData.attachedDockerContainerId,
-                   parseOutput
-                  );
+    GtkTreeIter treeIterator;
+    if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(listStore),
+                                            &treeIterator,
+                                            iteratorString
+                                           )
+       )
+    {
+      gchar    *commandLine;
+      gchar    *workingDirectory;
+      gboolean parseOutput;
+      gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+                         &treeIterator,
+                         MODEL_COMMAND_COMMAND_LINE,     &commandLine,
+                         MODEL_COMMAND_WORKING_DIRECTORY,&workingDirectory,
+                         MODEL_COMMAND_PARSE_OUTPUT,     &parseOutput,
+                         MODEL_END
+                        );
 
-    g_free(workingDirectory);
-    g_free(commandLine);
-  }
+      setEnableToolbar(FALSE);
+      showBuildMessagesTab();
+      executeCommand(commandLine,
+                     workingDirectory,
+                     NULL,  // customText
+                     pluginData.attachedDockerContainerId,
+                     parseOutput
+                    );
 
-  // update key binding for last command
-  if (   (pluginData.build.lastCommandListStore != listStore)
-      || !stringEquals(pluginData.build.lastCommandIteratorString->str,iteratorString)
-     )
-  {
-    pluginData.build.lastCommandListStore = listStore;
-    g_string_assign(pluginData.build.lastCommandIteratorString,iteratorString);
-    updateToolbarMenuItems();
+      g_free(workingDirectory);
+      g_free(commandLine);
+    }
+
+    // update key binding for last command
+    if (   (pluginData.build.lastCommandListStore != listStore)
+        || !stringEquals(pluginData.build.lastCommandIteratorString->str,iteratorString)
+       )
+    {
+      pluginData.build.lastCommandListStore = listStore;
+      g_string_assign(pluginData.build.lastCommandIteratorString,iteratorString);
+      updateToolbarMenuItems();
+    }
   }
 }
 
@@ -5182,7 +5199,7 @@ LOCAL void onKeyBinding(guint keyId)
 
 LOCAL void updateEnableToolbarButtons()
 {
-  gboolean enableWidgets = pluginData.widgets.disableCounter == 0;
+  gboolean enableWidgets = isEnabledToolbar();
 
   for (guint i = 0; i < MAX_COMMANDS; i++)
   {
@@ -5432,7 +5449,7 @@ LOCAL void updateToolbarButtons()
 
 LOCAL void updateEnableToolbarMenuItems()
 {
-  gboolean enableWidgets = pluginData.widgets.disableCounter == 0;
+  gboolean enableWidgets = isEnabledToolbar();
 
   guint i = 0;
   while ((i < MAX_COMMANDS) && (pluginData.widgets.menuItems.commands[i] != NULL))
