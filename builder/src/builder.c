@@ -461,10 +461,10 @@ LOCAL gboolean configurationLoadCommandList(GKeyFile     *configuration,
   gboolean result = TRUE;
 
   gtk_list_store_clear(listStore);
-  guint    i = 0;
+  guint i = 0;
   do
   {
-    gchar    name[64];
+    gchar name[64];
     g_snprintf(name,sizeof(name),"command%u",i);
     result = configurationLoadCommand(configuration, listStore, name);
     i++;
@@ -556,7 +556,7 @@ LOCAL gboolean configurationSaveCommand(GKeyFile     *configuration,
   g_free(commandLine);
   g_free(title);
 
-  g_string_free(string,TRUE);
+  g_string_free(string, TRUE);
 
   return result;
 }
@@ -851,10 +851,10 @@ LOCAL gboolean configurationLoadRegexList(GKeyFile     *configuration,
   }
 #endif
 
-  guint    i = 0;
+  guint i = 0;
   do
   {
-    gchar    name[64];
+    gchar name[64];
     g_snprintf(name,sizeof(name),"regex%u",i);
     result = configurationLoadRegex(configuration, listStore, name);
     i++;
@@ -935,7 +935,7 @@ LOCAL gboolean configurationSaveRegex(GKeyFile     *configuration,
   g_free(regexGroup);
   g_free(regexLanguage);
 
-  g_string_free(string,TRUE);
+  g_string_free(string, TRUE);
 
   return result;
 }
@@ -1548,11 +1548,11 @@ LOCAL gboolean dialogCommand(GtkWindow   *parentWindow,
     gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
     g_object_set(grid, "margin", 6, NULL);
     {
-      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Title"), NULL));
+      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Title"), FALSE, NULL));
       addGrid(grid, 0, 1, 1, newEntry(&widgetTitle, G_OBJECT(dialog), "title", "Command title."));
-      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Command"), NULL));
+      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Command"), FALSE, NULL));
       addGrid(grid, 1, 1, 1, newEntry(&widgetCommandLine, G_OBJECT(dialog), "commandLine", "Command line."));
-      addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Working directory"), NULL));
+      addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Working directory"), FALSE, NULL));
       addGrid(grid, 2, 1, 1, newWorkingDirectoryChooser(&widgetWorkingDirectory, G_OBJECT(dialog), "workingDirectory", "Working directory for command."));
       GtkBox *hbox;
       hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL,6));
@@ -1876,6 +1876,7 @@ LOCAL void  dialogRegexTypeCellRenderer(GtkCellLayout   *cellLayout,
 * Input  : widgetLanguage     - language widget
 *          widgetGroup        - group widget
 *          widgetRegex        - regular expression entry widget
+*          widgetRegexError   - regular expression error message widget
 *          widgetSample       - sample entry widget
 *          widgetFilePath     - view file path entry widget
 *          widgetLineNumber   - view line number entry widget
@@ -1890,6 +1891,7 @@ LOCAL void  dialogRegexTypeCellRenderer(GtkCellLayout   *cellLayout,
 LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
                                   GtkWidget *widgetGroup,
                                   GtkWidget *widgetRegex,
+                                  GtkWidget *widgetRegexError,
                                   GtkWidget *widgetSample,
                                   GtkWidget *widgetFilePath,
                                   GtkWidget *widgetLineNumber,
@@ -1915,17 +1917,26 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
     // validate regular expression, enable/disable ok-button
     GRegex      *regex;
     GMatchInfo  *matchInfo;
+    GError      *error = NULL;
     regex = g_regex_new(regexString,
-                        0, // compile_optipns
+                        G_REGEX_CASELESS|G_REGEX_MULTILINE,
                         0, // match option
-                        NULL // error
+                        &error
                        );
     if (regex != NULL)
     {
       gtk_widget_set_sensitive(widgetOK, TRUE);
 
-      if (g_regex_match(regex, gtk_entry_get_text(GTK_ENTRY(widgetSample)), 0, &matchInfo))
+      GtkTextBuffer *textBuffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(widgetSample));
+      GtkTextIter start, end;
+      gtk_text_buffer_get_start_iter(textBuffer, &start);
+      gtk_text_buffer_get_end_iter(textBuffer, &end);
+      char *sample = gtk_text_buffer_get_text(textBuffer, &start, &end, TRUE);
+      if (g_regex_match(regex, sample, 0, &matchInfo))
       {
+        // regex match
+        gtk_label_set_text(GTK_LABEL(widgetRegexError), "");
+
         gint filePathMatchNumber     = g_regex_get_string_number(regex, "filePath");
         gint lineNumberMatchNumber   = g_regex_get_string_number(regex, "lineNumber");
         gint columnNumberMatchNumber = g_regex_get_string_number(regex, "columnNumber");
@@ -1966,12 +1977,18 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
       }
       else
       {
-        // regex do not match
+        // regex does not match
+        GString *string = g_string_new(NULL);
+        g_string_printf(string, "<span foreground='red'>%s</span>", _("Regular expression does not match"));
+        gtk_label_set_markup(GTK_LABEL(widgetRegexError), string->str);
+        g_string_free(string,TRUE);
+
         gtk_entry_set_text(GTK_ENTRY(widgetFilePath), "");
         gtk_entry_set_text(GTK_ENTRY(widgetLineNumber), "");
         gtk_entry_set_text(GTK_ENTRY(widgetColumnNumber), "");
         gtk_entry_set_text(GTK_ENTRY(widgetMessage), "");
       }
+      g_free(sample);
 
       g_match_info_free(matchInfo);
       g_regex_unref(regex);
@@ -1979,16 +1996,26 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
     else
     {
       // invalid regex
+      g_assert(error != NULL);
+
+      gchar *string = g_markup_printf_escaped("<span foreground='red'>%s</span>", error->message);
+      gtk_label_set_markup(GTK_LABEL(widgetRegexError), string);
+      g_free(string);
+
       gtk_widget_set_sensitive(widgetOK, FALSE);
       gtk_entry_set_text(GTK_ENTRY(widgetFilePath), "");
       gtk_entry_set_text(GTK_ENTRY(widgetLineNumber), "");
       gtk_entry_set_text(GTK_ENTRY(widgetColumnNumber), "");
       gtk_entry_set_text(GTK_ENTRY(widgetMessage), "");
+
+      g_error_free(error);
     }
   }
   else
   {
     // empty regex
+    gtk_label_set_text(GTK_LABEL(widgetRegexError), "");
+
     gtk_widget_set_sensitive(widgetOK, FALSE);
     gtk_entry_set_text(GTK_ENTRY(widgetFilePath), "");
     gtk_entry_set_text(GTK_ENTRY(widgetLineNumber), "");
@@ -2022,6 +2049,8 @@ LOCAL void onInputRegexDialogChanged(GtkWidget *widget,
   g_assert(widgetGroup != NULL);
   GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "regex");
   g_assert(widgetRegex != NULL);
+  GtkWidget *widgetRegexError = g_object_get_data(G_OBJECT(dialog), "regexError");
+  g_assert(widgetRegexError != NULL);
   GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "sample");
   g_assert(widgetSample != NULL);
   GtkWidget *filePath = g_object_get_data(G_OBJECT(dialog), "filePath");
@@ -2038,6 +2067,7 @@ LOCAL void onInputRegexDialogChanged(GtkWidget *widget,
   dialogRegexUpdateMatch(widgetLanguage,
                          widgetGroup,
                          widgetRegex,
+                         widgetRegexError,
                          widgetSample,
                          filePath,
                          lineNumber,
@@ -2146,6 +2176,8 @@ LOCAL void onInputRegexDialogComboGroupChanged(GtkWidget *widget,
   g_assert(radioExtension != NULL);
   GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "regex");
   g_assert(widgetRegex != NULL);
+  GtkWidget *widgetRegexError = g_object_get_data(G_OBJECT(dialog), "regexError");
+  g_assert(widgetRegexError != NULL);
 
   GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "sample");
   g_assert(widgetSample != NULL);
@@ -2209,6 +2241,7 @@ LOCAL void onInputRegexDialogComboGroupChanged(GtkWidget *widget,
     dialogRegexUpdateMatch(widgetLanguage,
                            widgetGroup,
                            widgetRegex,
+                           widgetRegexError,
                            widgetSample,
                            filePath,
                            lineNumber,
@@ -2303,6 +2336,8 @@ LOCAL void onInputRegexDialogComboLanguageChanged(GtkWidget *widget,
   g_assert(radioExtension != NULL);
   GtkWidget *widgetRegex = g_object_get_data(G_OBJECT(dialog), "regex");
   g_assert(widgetRegex != NULL);
+  GtkWidget *widgetRegexError = g_object_get_data(G_OBJECT(dialog), "regexError");
+  g_assert(widgetRegexError != NULL);
 
   GtkWidget *widgetSample = g_object_get_data(G_OBJECT(dialog), "sample");
   g_assert(widgetSample != NULL);
@@ -2327,6 +2362,7 @@ LOCAL void onInputRegexDialogComboLanguageChanged(GtkWidget *widget,
   dialogRegexUpdateMatch(widgetLanguage,
                          widgetGroup,
                          widgetRegex,
+                         widgetRegexError,
                          widgetSample,
                          filePath,
                          lineNumber,
@@ -2355,7 +2391,6 @@ LOCAL void onInputRegexDialogComboLanguageChanged(GtkWidget *widget,
 
 LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
                            const gchar *title,
-                           const char  *text,
                            GString     *languageString,
                            GString     *groupString,
                            RegexTypes  *regexType,
@@ -2366,14 +2401,13 @@ LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
   GtkWidget *widgetLanguage;
   GtkWidget *widgetGroup;
   GtkWidget *widgetRegExTypeEnter, *widgetRegExTypeLeave, *widgetRegExTypeError, *widgetRegExTypeWarning, *widgetRegExTypeExtension;
-  GtkWidget *widgetRegex, *widgetSample;
+  GtkWidget *widgetRegex, *widgetRegexError, *widgetSample;
   GtkWidget *widgetFilePath, *widgetLineNumber, *widgetColumnNumber, *widgetMessage;
   GtkWidget *widgetOK;
   gint      result;
 
   g_assert(parentWindow != NULL);
   g_assert(title != NULL);
-  g_assert(text != NULL);
   g_assert(groupString != NULL);
   g_assert(regexType != NULL);
   g_assert(regexString != NULL);
@@ -2394,15 +2428,16 @@ LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
   gtk_widget_set_margin_top(GTK_WIDGET(vbox), 6);
   gtk_widget_set_margin_bottom(GTK_WIDGET(vbox), 6);
   {
-    GtkBox *hbox;
-
     GtkGrid *grid = GTK_GRID(gtk_grid_new());
     gtk_grid_set_row_spacing(grid, 6);
     gtk_grid_set_column_spacing(grid, 12);
     gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
     g_object_set(grid, "margin", 6, NULL);
     {
-      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Language", NULL));
+      GtkBox *hbox;
+
+      // language+group
+      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Language"), FALSE, NULL));
       hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL,12));
       {
         // language combo oox
@@ -2508,7 +2543,8 @@ NULL
       }
       addGrid(grid, 0, 1, 2, GTK_WIDGET(hbox));
 
-      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Type", NULL));
+      // regex type
+      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Type"), FALSE, NULL));
       hbox = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL,12));
       {
         addBox(hbox, FALSE, newRadioButton(&widgetRegExTypeEnter, G_OBJECT(dialog), NULL,                   "enter",     REGEX_TYPE_STRINGS[REGEX_TYPE_ENTER    ], NULL));
@@ -2524,7 +2560,8 @@ NULL
       }
       addGrid(grid, 1, 1, 2, GTK_WIDGET(hbox));
 
-      addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, text, NULL));
+      // regex
+      addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Regular expression"), FALSE, NULL));
       addGrid(grid, 2, 1, 2, newEntry(&widgetRegex,
                                       G_OBJECT(dialog),
                                       "regex",
@@ -2536,19 +2573,21 @@ NULL
                                      )
              );
       gtk_entry_set_text(GTK_ENTRY(widgetRegex), regexString->str);
+      addGrid(grid, 3, 1, 2, newLabel(&widgetRegexError, G_OBJECT(dialog), _("regexError"), "", FALSE, NULL));
 
-      addGrid(grid, 3, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Sample"), NULL));
-      addGrid(grid, 3, 1, 2, newEntry(&widgetSample, G_OBJECT(dialog), "sample", "Regular expression match example"));
-      gtk_entry_set_text(GTK_ENTRY(widgetSample), sample);
+      // sample
+      addGrid(grid, 4, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Sample"), TRUE, NULL));
+      addGrid(grid, 4, 1, 2, newTextEntry(&widgetSample, G_OBJECT(dialog), "sample", sample, "Regular expression match example"));
 
-      addGrid(grid, 4, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "File path", NULL));
-      addGrid(grid, 4, 2, 1, newView (&widgetFilePath, G_OBJECT(dialog), "filePath", NULL));
-      addGrid(grid, 5, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Line number", NULL));
-      addGrid(grid, 5, 2, 1, newView (&widgetLineNumber, G_OBJECT(dialog), "lineNumber", NULL));
-      addGrid(grid, 6, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Column number", NULL));
-      addGrid(grid, 6, 2, 1, newView (&widgetColumnNumber, G_OBJECT(dialog), "columnNumber", NULL));
-      addGrid(grid, 7, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, "Message", NULL));
-      addGrid(grid, 7, 2, 1, newView (&widgetMessage, G_OBJECT(dialog), "message", NULL));
+      // regex result
+      addGrid(grid, 5, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("File path"), FALSE, NULL));
+      addGrid(grid, 5, 2, 1, newView (&widgetFilePath, G_OBJECT(dialog), "filePath", NULL));
+      addGrid(grid, 6, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Line number"), FALSE, NULL));
+      addGrid(grid, 6, 2, 1, newView (&widgetLineNumber, G_OBJECT(dialog), "lineNumber", NULL));
+      addGrid(grid, 7, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Column number"), FALSE, NULL));
+      addGrid(grid, 7, 2, 1, newView (&widgetColumnNumber, G_OBJECT(dialog), "columnNumber", NULL));
+      addGrid(grid, 8, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Message"), FALSE, NULL));
+      addGrid(grid, 8, 2, 1, newView (&widgetMessage, G_OBJECT(dialog), "message", NULL));
       plugin_signal_connect(geany_plugin,
                             G_OBJECT(widgetRegex),
                             "changed",
@@ -2564,7 +2603,7 @@ NULL
                             dialog
                            );
     }
-    addBox(vbox, FALSE, GTK_WIDGET(grid));
+    addBox(vbox, TRUE, GTK_WIDGET(grid));
   }
   addBox(GTK_BOX(gtk_dialog_get_content_area(GTK_DIALOG(dialog))), TRUE, GTK_WIDGET(vbox));
   gtk_widget_show_all(dialog);
@@ -2573,6 +2612,7 @@ NULL
   dialogRegexUpdateMatch(widgetLanguage,
                          widgetGroup,
                          widgetRegex,
+                         widgetRegexError,
                          widgetSample,
                          widgetFilePath,
                          widgetLineNumber,
@@ -2622,7 +2662,6 @@ LOCAL void addRegex(const gchar *sample)
   GString    *regexString         = g_string_new(NULL);
   if (dialogRegex(GTK_WINDOW(geany_data->main_widgets->window),
                   _("Add regular expression"),
-                  _("Regular expression:"),
                   regexLanguageString,
                   regexGroupString,
                   &regexType,
@@ -2702,7 +2741,6 @@ LOCAL void cloneRegex(GtkListStore *listStore,
   GString *regexString    = g_string_new(regex);
   if (dialogRegex(GTK_WINDOW(geany_data->main_widgets->window),
                   _("Clone regular expression"),
-                  _("Regular expression:"),
                   languageString,
                   groupString,
                   &regexType,
@@ -2786,7 +2824,6 @@ LOCAL void editRegex(GtkListStore *listStore,
   GString *regexString    = g_string_new(regex);
   if (dialogRegex(GTK_WINDOW(geany_data->main_widgets->window),
                   _("Edit regular expression"),
-                  _("Regular expression:"),
                   languageString,
                   groupString,
                   &regexType,
@@ -3144,7 +3181,7 @@ LOCAL gboolean isMatchingRegex(const gchar  *regexString,
   (*matchCount) = 0;
 
   regex = g_regex_new(regexString,
-                      0, // compile_optipns
+                      G_REGEX_CASELESS|G_REGEX_MULTILINE,
                       0, // match option
                       NULL // error
                      );
@@ -3277,7 +3314,7 @@ LOCAL gboolean isMatchingRegexs(GtkListStore *listStore,
         GRegex     *regex;
         GMatchInfo *matchInfo;
         regex = g_regex_new(checkRegEx,
-                            0, // compile_optipns
+                            G_REGEX_CASELESS|G_REGEX_MULTILINE,
                             0, // match option
                             NULL // error
                            );
@@ -3765,6 +3802,7 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
       g_string_printf(string, "Warnings");
     }
     gtk_label_set_text(GTK_LABEL(pluginData.widgets.warningsTabLabel), string->str);
+    g_string_free(string, TRUE);
 
     if (!pluginData.build.showedFirstErrorWarning)
     {
@@ -3790,7 +3828,6 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
         pluginData.build.showedFirstErrorWarning = TRUE;
       }
     }
-    g_string_free(string, TRUE);
   }
   else
   {
@@ -4528,16 +4565,16 @@ LOCAL void onMenuItemRemote(GtkWidget *widget,
       gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
       gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
       {
-        addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Host name"), NULL));
+        addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Host name"), FALSE, NULL));
         addGrid(grid, 0, 1, 1, newEntry(&widgetHostName, G_OBJECT(dialog), "hostName", "Host name."));
         addGrid(grid, 0, 2, 1, newSpinButton(&widgetHostPort, G_OBJECT(dialog), "hostPort", "Host port number.", 0, 65535));
-        addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("User name"), NULL));
+        addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("User name"), FALSE, NULL));
         addGrid(grid, 1, 1, 2, newEntry(&widgetUserName, G_OBJECT(dialog), "userName", "User login name."));
-        addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Public key"), NULL));
+        addGrid(grid, 2, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Public key"), FALSE, NULL));
         addGrid(grid, 2, 1, 2, newFileChooser(&widgetPublicKey, G_OBJECT(dialog), "publicKey", "User public key."));
-        addGrid(grid, 3, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Private key"), NULL));
+        addGrid(grid, 3, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Private key"), FALSE, NULL));
         addGrid(grid, 3, 1, 2, newFileChooser(&widgetPrivateKey, G_OBJECT(dialog), "privateKey", "User private key."));
-        addGrid(grid, 4, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Password"), NULL));
+        addGrid(grid, 4, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Password"), FALSE, NULL));
         addGrid(grid, 4, 1, 2, newPasswordEntry(&widgetPassword, G_OBJECT(dialog), "password", "User login or private key password."));
 
         plugin_signal_connect(geany_plugin,
@@ -7355,10 +7392,10 @@ LOCAL void onProjectDialogOpen(GObject   *object,
     gtk_grid_set_column_spacing(grid, 12);
     gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
     {
-      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(pluginData.widgets.projectProperties), NULL, "Error regular expression", NULL));
+      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(pluginData.widgets.projectProperties), NULL, _("Error regular expression"), FALSE, NULL));
       addGrid(grid, 0, 1, 1, newEntry(NULL, G_OBJECT(pluginData.widgets.projectProperties), "error_regex", "Regular expression to recognize errors"));
 
-      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(pluginData.widgets.projectProperties), NULL, "Warning regular expression", NULL));
+      addGrid(grid, 1, 0, 1, newLabel(NULL, G_OBJECT(pluginData.widgets.projectProperties), NULL, _("Warning regular expression"), FALSE, NULL));
       addGrid(grid, 1, 1, 1, newEntry(NULL, G_OBJECT(pluginData.widgets.projectProperties), "warning_regex", "Regular expression to recognize warnings"));
     }
     addBox(GTK_BOX(pluginData.widgets.projectProperties), FALSE, GTK_WIDGET(grid));

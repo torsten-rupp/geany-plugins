@@ -332,8 +332,9 @@ GtkWidget *addTab(GtkWidget *notebook, const char *title);
 * Input  : widget      - widget variable or NULL
 *          rootObject  - root object
 *          name        - property value name
-*          text        - entry label text
-*          tooltipText - entry tooltip text
+*          text        - label text
+*          alignTop    - TRUE to align text top
+*          tooltipText - label tooltip text
 * Output : -
 * Return : widget
 * Notes  : -
@@ -343,6 +344,7 @@ GtkWidget *newLabel(GtkWidget   **widget,
                     GObject     *rootObject,
                     const gchar *name,
                     const gchar *text,
+                    gboolean    alignTop,
                     const gchar *tooltipText
                    );
 
@@ -351,8 +353,8 @@ GtkWidget *newLabel(GtkWidget   **widget,
 * Purpose: new text view widget
 * Input  : rootObject  - root object
 *          name        - property value name
-*          text        - entry label text
-*          tooltipText - entry tooltip text
+*          text        - view text
+*          tooltipText - view tooltip text
 * Output : -
 * Return : widget
 * Notes  : -
@@ -369,8 +371,8 @@ GtkWidget *newView(GtkWidget   **widget,
 * Purpose: new check button widget
 * Input  : rootObject  - root object
 *          name        - property value name
-*          text        - entry label text
-*          tooltipText - entry tooltip text
+*          text        - button label text
+*          tooltipText - button tooltip text
 * Output : -
 * Return : widget
 * Notes  : -
@@ -389,8 +391,8 @@ GtkWidget *newCheckButton(GtkWidget   **widget,
 * Input  : rootObject      - root object
 *          prevRadioButton - previouos radio button or NULL
 *          name            - property value name
-*          text            - entry label text
-*          tooltipText     - entry tooltip text
+*          text            - button label text
+*          tooltipText     - button tooltip text
 * Output : -
 * Return : widget
 * Notes  : -
@@ -466,7 +468,7 @@ GtkWidget *newComboEntry(GtkWidget   **widget,
 * Input  : widget      - widget variable or NULL
 *          rootObject  - root object
 *          name        - property value name
-*          text        - entry label text
+*          text        - entry text
 *          tooltipText - entry tooltip text
 * Output : -
 * Return : widget
@@ -478,6 +480,26 @@ GtkWidget *newEntry(GtkWidget   **widget,
                     const gchar *name,
                     const gchar *tooltipText
                    );
+
+/***********************************************************************\
+* Name   : newTextEntry
+* Purpose: new text entry widget (multiline entry)
+* Input  : widget      - widget variable or NULL
+*          rootObject  - root object
+*          name        - property value name
+*          text        - entry text
+*          tooltipText - entry tooltip text
+* Output : -
+* Return : widget
+* Notes  : -
+\***********************************************************************/
+
+GtkWidget *newTextEntry(GtkWidget   **widget,
+                        GObject     *rootObject,
+                        const gchar *name,
+                        const gchar *text,
+                        const gchar *tooltipText
+                       );
 
 /***********************************************************************\
 * Name   : newPasswordEntry

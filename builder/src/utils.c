@@ -441,15 +441,18 @@ GtkWidget *newLabel(GtkWidget   **widget,
                     GObject     *rootObject,
                     const gchar *name,
                     const gchar *text,
+                    gboolean    alignTop,
                     const gchar *tooltipText
                    )
 {
-  GtkWidget *label;
-
-  label = gtk_label_new(text);
+  GtkWidget *label = gtk_label_new(text);
   gtk_widget_set_tooltip_text(label, tooltipText);
   //gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
   gtk_widget_set_halign(label, GTK_ALIGN_START);
+  if (alignTop)
+  {
+    gtk_widget_set_valign(label, GTK_ALIGN_START);
+  }
 
   if (widget != NULL)
   {
@@ -469,9 +472,7 @@ GtkWidget *newView(GtkWidget   **widget,
                    const gchar *tooltipText
                   )
 {
-  GtkWidget *entry;
-
-  entry = gtk_entry_new();
+  GtkWidget *entry = gtk_entry_new();
   g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
   g_object_set(entry, "editable", FALSE, "can_focus", FALSE, NULL);
@@ -496,9 +497,7 @@ GtkWidget *newCheckButton(GtkWidget   **widget,
                           const gchar *tooltipText
                          )
 {
-  GtkWidget *checkButton;
-
-  checkButton = (text != NULL) ? gtk_check_button_new_with_label(text) : gtk_check_button_new();
+  GtkWidget *checkButton = (text != NULL) ? gtk_check_button_new_with_label(text) : gtk_check_button_new();
   g_assert(checkButton != NULL);
   gtk_widget_set_tooltip_text(checkButton, tooltipText);
   gtk_widget_set_halign(checkButton, GTK_ALIGN_START);
@@ -523,9 +522,7 @@ GtkWidget *newRadioButton(GtkWidget   **widget,
                           const gchar *tooltipText
                          )
 {
-  GtkWidget *radioButton;
-
-  radioButton = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(prevRadioButton), text);
+  GtkWidget *radioButton = gtk_radio_button_new_with_label_from_widget(GTK_RADIO_BUTTON(prevRadioButton), text);
   gtk_widget_set_tooltip_text(radioButton, tooltipText);
   gtk_widget_set_halign(radioButton, GTK_ALIGN_START);
 
@@ -549,9 +546,7 @@ GtkWidget *newSpinButton(GtkWidget   **widget,
                          size_t      max
                         )
 {
-  GtkWidget *entry;
-
-  entry = gtk_spin_button_new_with_range((gdouble)min, (gdouble)max, 1.0);
+  GtkWidget *entry = gtk_spin_button_new_with_range((gdouble)min, (gdouble)max, 1.0);
   g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
   gtk_spin_button_set_numeric(GTK_SPIN_BUTTON(entry), TRUE);
@@ -575,9 +570,7 @@ GtkWidget *newCombo(GtkWidget   **widget,
                     const gchar *tooltipText
                    )
 {
-  GtkWidget *entry;
-
-  entry = gtk_combo_box_text_new();
+  GtkWidget *entry = gtk_combo_box_text_new();
   g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
   gtk_widget_set_hexpand(entry, TRUE);
@@ -600,9 +593,8 @@ GtkWidget *newComboEntry(GtkWidget   **widget,
                          const gchar *tooltipText
                         )
 {
-  GtkWidget *entry;
 
-  entry = gtk_combo_box_text_new_with_entry();
+  GtkWidget *entry = gtk_combo_box_text_new_with_entry();
   gtk_widget_set_tooltip_text(entry, tooltipText);
   gtk_widget_set_hexpand(entry, TRUE);
 
@@ -624,9 +616,7 @@ GtkWidget *newEntry(GtkWidget   **widget,
                     const gchar *tooltipText
                    )
 {
-  GtkWidget *entry;
-
-  entry = gtk_entry_new();
+  GtkWidget *entry = gtk_entry_new();
   g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
   ui_entry_add_clear_icon(GTK_ENTRY(entry));
@@ -644,15 +634,46 @@ GtkWidget *newEntry(GtkWidget   **widget,
   return entry;
 }
 
+GtkWidget *newTextEntry(GtkWidget   **widget,
+                        GObject     *rootObject,
+                        const gchar *name,
+                        const gchar *text,
+                        const gchar *tooltipText
+                       )
+{
+  GtkWidget *textView = gtk_text_view_new();
+  g_assert(textView != NULL);
+  gtk_widget_set_tooltip_text(textView, tooltipText);
+  gtk_widget_set_hexpand(textView, TRUE);
+  gtk_widget_set_vexpand(textView, TRUE);
+  gtk_text_view_set_border_window_size(GTK_TEXT_VIEW(textView), GTK_TEXT_WINDOW_TOP,    1);
+  gtk_text_view_set_border_window_size(GTK_TEXT_VIEW(textView), GTK_TEXT_WINDOW_BOTTOM, 1);
+  gtk_text_view_set_border_window_size(GTK_TEXT_VIEW(textView), GTK_TEXT_WINDOW_LEFT,   1);
+  gtk_text_view_set_border_window_size(GTK_TEXT_VIEW(textView), GTK_TEXT_WINDOW_RIGHT,  1);
+  gtk_widget_set_size_request(textView, -1, 50);
+
+  GtkTextBuffer *textBuffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(textView));
+  gtk_text_buffer_set_text(textBuffer, text, -1);
+
+  if (widget != NULL)
+  {
+    (*widget) = textView;
+  }
+  if (name != NULL)
+  {
+    g_object_set_data(G_OBJECT(rootObject), name, textView);
+  }
+
+  return textView;
+}
+
 GtkWidget *newPasswordEntry(GtkWidget   **widget,
                             GObject     *rootObject,
                             const gchar *name,
                             const gchar *tooltipText
                            )
 {
-  GtkWidget *entry;
-
-  entry = gtk_entry_new();
+  GtkWidget *entry = gtk_entry_new();
   g_assert(entry != NULL);
   gtk_entry_set_visibility(GTK_ENTRY(entry), FALSE);
   gtk_widget_set_tooltip_text(entry, tooltipText);
@@ -677,9 +698,7 @@ GtkWidget *newColorChooser(GtkWidget   **widget,
                            const gchar *tooltipText
                           )
 {
-  GtkWidget *colorChooser;
-
-  colorChooser = gtk_color_button_new();
+  GtkWidget *colorChooser = gtk_color_button_new();
   g_assert(colorChooser != NULL);
 //  colorChooser = gtk_color_button_new_with_rgba(&pluginData.configuration.errorIndicatorColor);
   gtk_widget_set_tooltip_text(colorChooser, tooltipText);
@@ -1342,7 +1361,7 @@ gboolean inputDialog(GtkWindow      *parentWindow,
     gtk_widget_set_hexpand(GTK_WIDGET(grid), TRUE);
     g_object_set(GTK_GRID(grid), "margin", 6, NULL);
     {
-      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, text, tooltipText));
+      addGrid(grid, 0, 0, 1, newLabel(NULL, G_OBJECT(dialog), NULL, text, FALSE, tooltipText));
       addGrid(grid, 0, 1, 1, newEntry(&entry, G_OBJECT(dialog), "entry", tooltipText));
 
       if (value != NULL)
@@ -1505,7 +1524,7 @@ gchar *expandMacros(const GeanyProject  *project,
   result = expandedString->str;
 
   // free resources
-  g_string_free(expandedString,FALSE);
+  g_string_free(expandedString, FALSE);
 
   return result;
 }
