@@ -27,7 +27,7 @@ struct { const gchar *language; const gchar *group; RegexTypes type; const gchar
   { "C++", "gcc", REGEX_TYPE_WARNING, "^(?<filePath>[^:]+):(?<lineNumber>\\d+):(?<columnNumber>\\d+):.*warning:\\s*(?<message>.+)$" },
   { "C++", "linker", REGEX_TYPE_ERROR, "^(?<filePath>[^:]+):(?<lineNumber>\\d+):\\s*(?<message>undefined.*)$" },
   { "Java", "javac", REGEX_TYPE_ERROR, "^(?<filePath>[^:]+):(?<lineNumber>\\d+):\\s*error:\\s*(?<message>.+)$" },
-  { "Java", "javac", REGEX_TYPE_ERROR, "^(?<filePath>[^:]+):(?<lineNumber>\\d+):\\s*warning:\\s*(?<message>.+)$" },
+  { "Java", "javac", REGEX_TYPE_WARNING, "^(?<filePath>[^:]+):(?<lineNumber>\\d+):\\s*warning:\\s*(?<message>.+)$" },
   { "Make", "gmake", REGEX_TYPE_ENTER, "^.*Entering directory\\s+'(?<directory>[^']*)'\\s*$" },
   { "Make", "gmake", REGEX_TYPE_LEAVE, "^.*Leaving directory\\s+'(?<directory>[^']*)'\\s*$" },
   { "PHP", "php", REGEX_TYPE_ERROR, "^Parse error: parse error,\\s*(.*)\\s+in\\s+(?<filePath>.*)\\s+on line\\s+(?<lineNumber>[0-9]+)\\s+(?<message>.+)$" },

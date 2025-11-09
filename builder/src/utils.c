@@ -56,6 +56,12 @@ typedef GPtrArray StringStack;
 
 /***************************** Functions *******************************/
 
+void __abort(const gchar *message)
+{
+  fprintf(stderr, "HALT: %s\n", message);
+  abort();
+}
+
 gchar *stringEscape(const gchar *string, const char *toEscape, char escapeChar)
 {
   GString *escapedString;
@@ -193,54 +199,58 @@ gchar *getAbsolutePath(const gchar *directory,
   return absoluteFilePath;
 }
 
-StringStack *string_stack_new()
+StringStack *stringStackNew()
 {
   return g_ptr_array_new_with_free_func(g_free);
 }
 
-void string_stack_free(StringStack *stringStack)
+void stringStackDelete(StringStack *stringStack)
 {
   g_assert(stringStack != NULL);
 
   g_ptr_array_free(stringStack, TRUE);
 }
 
-void string_stack_push(StringStack *stringStack, const gchar *string)
+void stringStackPush(StringStack *stringStack, const gchar *string)
 {
   g_assert(stringStack != NULL);
 
   g_ptr_array_add(stringStack, g_strdup(string));
 }
 
-void string_stack_pop(StringStack *stringStack)
+void stringStackPop(StringStack *stringStack)
 {
   g_assert(stringStack != NULL);
 
   if (stringStack->len > 0)
   {
+    // Note: strings will be freed via GDestroyNotify()
     g_ptr_array_set_size(stringStack, stringStack->len-1);
   }
 }
 
-void string_stack_clear(StringStack *stringStack)
+void stringStackClear(StringStack *stringStack)
 {
   g_assert(stringStack != NULL);
 
   g_ptr_array_set_size(stringStack, 0);
 }
 
-gchar *string_stack_top(StringStack *stringStack)
+gchar *stringStackPeek(StringStack *stringStack)
 {
   g_assert(stringStack != NULL);
 
+  gchar *string;
   if (stringStack->len > 0)
   {
-    return (gchar*)stringStack->pdata[stringStack->len-1];
+    string = (gchar*)stringStack->pdata[stringStack->len-1];
   }
   else
   {
-    return NULL;
+    string = NULL;
   }
+
+  return string;
 }
 
 gchar *getAbsoluteDirectory(const gchar *directory,
@@ -316,6 +326,7 @@ gchar *getAbsoluteDirectory(const gchar *directory,
     }
     g_strfreev(tokens);
 
+    // next directory path
     directory = va_arg(arguments, const gchar*);
   }
   while (directory != NULL);
@@ -446,6 +457,7 @@ GtkWidget *newLabel(GtkWidget   **widget,
                    )
 {
   GtkWidget *label = gtk_label_new(text);
+  gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
   gtk_widget_set_tooltip_text(label, tooltipText);
   //gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
   gtk_widget_set_halign(label, GTK_ALIGN_START);
@@ -469,6 +481,7 @@ GtkWidget *newLabel(GtkWidget   **widget,
 GtkWidget *newView(GtkWidget   **widget,
                    GObject     *rootObject,
                    const gchar *name,
+                   const gchar *text,
                    const gchar *tooltipText
                   )
 {
@@ -476,6 +489,10 @@ GtkWidget *newView(GtkWidget   **widget,
   g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
   g_object_set(entry, "editable", FALSE, "can_focus", FALSE, NULL);
+  if (text != NULL)
+  {
+    gtk_entry_set_text(GTK_ENTRY(entry), text);
+  }
   gtk_widget_set_hexpand(entry, TRUE);
 
   if (widget != NULL)
@@ -644,13 +661,16 @@ GtkWidget *newTextEntry(GtkWidget   **widget,
   GtkWidget *textView = gtk_text_view_new();
   g_assert(textView != NULL);
   gtk_widget_set_tooltip_text(textView, tooltipText);
-  gtk_widget_set_hexpand(textView, TRUE);
-  gtk_widget_set_vexpand(textView, TRUE);
   gtk_text_view_set_border_window_size(GTK_TEXT_VIEW(textView), GTK_TEXT_WINDOW_TOP,    1);
   gtk_text_view_set_border_window_size(GTK_TEXT_VIEW(textView), GTK_TEXT_WINDOW_BOTTOM, 1);
   gtk_text_view_set_border_window_size(GTK_TEXT_VIEW(textView), GTK_TEXT_WINDOW_LEFT,   1);
   gtk_text_view_set_border_window_size(GTK_TEXT_VIEW(textView), GTK_TEXT_WINDOW_RIGHT,  1);
-  gtk_widget_set_size_request(textView, -1, 50);
+
+  GtkWidget *scrolledWindow = gtk_scrolled_window_new(NULL, NULL);
+  gtk_widget_set_hexpand(textView, TRUE);
+  gtk_widget_set_vexpand(scrolledWindow, TRUE);
+  gtk_widget_set_size_request(scrolledWindow, -1, 80);
+  gtk_container_add(GTK_CONTAINER(scrolledWindow), textView);
 
   GtkTextBuffer *textBuffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(textView));
   gtk_text_buffer_set_text(textBuffer, text, -1);
@@ -664,7 +684,7 @@ GtkWidget *newTextEntry(GtkWidget   **widget,
     g_object_set_data(G_OBJECT(rootObject), name, textView);
   }
 
-  return textView;
+  return scrolledWindow;
 }
 
 GtkWidget *newPasswordEntry(GtkWidget   **widget,
@@ -1520,11 +1540,8 @@ gchar *expandMacros(const GeanyProject  *project,
     }
   }
 
-  // get result
-  result = expandedString->str;
-
   // free resources
-  g_string_free(expandedString, FALSE);
+  result = g_string_free_and_steal(expandedString);
 
   return result;
 }

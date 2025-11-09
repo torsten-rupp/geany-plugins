@@ -48,9 +48,28 @@ typedef GPtrArray StringStack;
 
 /****************************** Macros *********************************/
 
+#define HALT_INTERNAL_ERROR_UNHANDLED_SWITCH_CASE() \
+  do \
+  { \
+     __abort("Unhandled switch case"); \
+  } \
+  while (0)
+
+
 /***************************** Forwards ********************************/
 
 /***************************** Functions *******************************/
+
+/***********************************************************************\
+* Name   : __abort
+* Purpose: avirt program immediately
+* Input  : message - abort message to print
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+void __abort(const gchar *message);
 
 /***********************************************************************\
 * Name   : stringEquals
@@ -155,7 +174,7 @@ gchar *getAbsolutePath(const gchar *directory,
                       );
 
 /***********************************************************************\
-* Name   : string_stack_new
+* Name   : stringStackNew
 * Purpose: new string stack
 * Input  : -
 * Output : -
@@ -163,10 +182,10 @@ gchar *getAbsolutePath(const gchar *directory,
 * Notes  : -
 \***********************************************************************/
 
-StringStack *string_stack_new();
+StringStack *stringStackNew();
 
 /***********************************************************************\
-* Name   : string_stack_free
+* Name   : stringStackDelete
 * Purpose: free string stack
 * Input  : stringStack - string stack to free
 * Output : -
@@ -174,10 +193,10 @@ StringStack *string_stack_new();
 * Notes  : -
 \***********************************************************************/
 
-void string_stack_free(StringStack *stringStack);
+void stringStackDelete(StringStack *stringStack);
 
 /***********************************************************************\
-* Name   : string_stack_push
+* Name   : stringStackPush
 * Purpose: push string on string stack
 * Input  : stringStack - string stack
 *          string      - string
@@ -186,10 +205,10 @@ void string_stack_free(StringStack *stringStack);
 * Notes  : -
 \***********************************************************************/
 
-void string_stack_push(StringStack *stringStack, const gchar *string);
+void stringStackPush(StringStack *stringStack, const gchar *string);
 
 /***********************************************************************\
-* Name   : string_stack_pop
+* Name   : stringStackPop
 * Purpose: pop string from string stack
 * Input  : stringStack - string stack
 * Output : -
@@ -197,10 +216,10 @@ void string_stack_push(StringStack *stringStack, const gchar *string);
 * Notes  : -
 \***********************************************************************/
 
-void string_stack_pop(StringStack *stringStack);
+void stringStackPop(StringStack *stringStack);
 
 /***********************************************************************\
-* Name   : string_stack_clear
+* Name   : stringStackClear
 * Purpose: clear string stack
 * Input  : stringStack - string stack
 * Output : -
@@ -208,18 +227,18 @@ void string_stack_pop(StringStack *stringStack);
 * Notes  : -
 \***********************************************************************/
 
-void string_stack_clear(StringStack *stringStack);
+void stringStackClear(StringStack *stringStack);
 
 /***********************************************************************\
-* Name   : string_stack_top
-* Purpose: get top string on stack or NULL
+* Name   : stringStackPeek
+* Purpose: peek top string on stack or NULL
 * Input  : stringStack - string stack
 * Output : -
 * Return : top string
 * Notes  : -
 \***********************************************************************/
 
-gchar *string_stack_top(StringStack *stringStack);
+gchar *stringStackPeek(StringStack *stringStack);
 
 /***********************************************************************\
 * Name   : getAbsoluteDirectory
@@ -363,6 +382,7 @@ GtkWidget *newLabel(GtkWidget   **widget,
 GtkWidget *newView(GtkWidget   **widget,
                    GObject     *rootObject,
                    const gchar *name,
+                   const gchar *text,
                    const gchar *tooltipText
                   );
 

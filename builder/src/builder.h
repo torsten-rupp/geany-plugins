@@ -19,15 +19,6 @@
 
 /***************************** Datatypes *******************************/
 
-typedef void(*ExecuteOutputFunction)(const gchar *workingDirectory,
-                                     const gchar *line,
-                                     void        *userData
-                                    );
-
-typedef void(*ExecuteExitFunction)(gint status,
-                                   void *userData
-                                  );
-
 /***************************** Variables *******************************/
 
 /****************************** Macros *********************************/

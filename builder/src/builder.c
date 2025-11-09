@@ -126,7 +126,7 @@ enum
   MODEL_ATTACH_DOCKER_CONTAINER_COUNT
 };
 
-const int MODEL_END = -1;
+#define MODEL_END -1
 
 /***************************** Datatypes *******************************/
 
@@ -171,6 +171,21 @@ const gchar *REGEX_TYPE_STRINGS[] =
 };
 
 #include "regex-list.c"
+
+// regular expression match types
+typedef enum
+{
+  MATCH_TYPE_NONE,
+  MATCH_TYPE_PARTIAL,
+  MATCH_TYPE_FULL
+} MatchTypes;
+
+// execute command output
+typedef struct
+{
+  gboolean parseOutput;
+  GString  *text;
+} ExecuteCommandOutput;
 
 /***************************** Variables *******************************/
 
@@ -1322,6 +1337,124 @@ LOCAL_INLINE bool isEnabledToolbar()
 }
 
 /***********************************************************************\
+* Name   : appendMessage
+* Purpose: append message to message tab
+* Input  : insertColor     - insert color
+*          messageTreePath - message tree path of inserted message (can
+*                            be NULL)
+*          ...             - columns (MUST be terminated with MODEL_END!)
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+LOCAL void appendMessage(const gchar *insertColor,
+                         gchar       **messageTreePath,
+                         ...
+                        )
+{
+  gint   columns[MODEL_MESSAGE_COUNT];
+  GValue values[MODEL_MESSAGE_COUNT] = {G_VALUE_INIT};
+  gint   count = 0;
+
+  // set color
+  columns[0] = MODEL_MESSAGE_COLOR;
+  g_value_init(&values[0], G_TYPE_STRING);
+  g_value_set_string(&values[0], insertColor);
+  count++;
+
+  // get column values
+  va_list arguments;
+  va_start(arguments, messageTreePath);
+  gint modelMessage;
+  gchar **messageLines = NULL;
+  gint  messageIndex   = -1;
+  do
+  {
+    modelMessage = va_arg(arguments, gint);
+    switch (modelMessage)
+    {
+      case MODEL_MESSAGE_TREE_PATH:
+      case MODEL_MESSAGE_DIRECTORY:
+      case MODEL_MESSAGE_FILE_PATH:
+        g_assert(count < MODEL_MESSAGE_COUNT);
+        columns[count] = modelMessage;
+        g_value_init(&values[count], G_TYPE_STRING);
+        g_value_set_string(&values[count], va_arg(arguments, gchar*));
+        count++;
+        break;
+      case MODEL_MESSAGE_LINE_NUMBER:
+      case MODEL_MESSAGE_COLUMN_NUMBER:
+        g_assert(count < MODEL_MESSAGE_COUNT);
+        columns[count] = modelMessage;
+        g_value_init(&values[count], G_TYPE_UINT);
+        g_value_set_uint(&values[count], va_arg(arguments, guint));
+        count++;
+        break;
+      case MODEL_MESSAGE_MESSAGE:
+        g_assert(count < MODEL_MESSAGE_COUNT);
+        columns[count] = modelMessage;
+        g_value_init(&values[count], G_TYPE_STRING);
+        messageLines = g_strsplit(va_arg(arguments, gchar*), "\n", -1);
+        messageIndex = count;
+        count++;
+        break;
+      case MODEL_END:
+        break;
+      default:
+        HALT_INTERNAL_ERROR_UNHANDLED_SWITCH_CASE();
+        break;
+    }
+  }
+  while (modelMessage != MODEL_END);
+
+  // insert line 0 into list with iterator path
+  if (messageLines != NULL)
+  {
+    g_value_set_string(&values[messageIndex], messageLines[0]);
+  }
+  GtkTreeIter treeIterator;
+  gtk_list_store_insert_with_valuesv(pluginData.build.messagesStore,
+                                     (messageTreePath != NULL) ? &treeIterator : NULL,
+                                     -1,  // position
+                                     columns,
+                                     values,
+                                     count
+                                    );
+  if (messageTreePath != NULL)
+  {
+    (*messageTreePath) = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
+                                                                            &treeIterator
+                                                                           );
+  }
+
+  // insert message lines 1..n-1 into list
+  if ((messageLines != NULL) && messageLines[0] != NULL)
+  {
+    size_t i = 1;
+    while (messageLines[i] != NULL)
+    {
+      g_value_set_string(&values[messageIndex], messageLines[i]);
+      gtk_list_store_insert_with_valuesv(pluginData.build.messagesStore,
+                                         NULL,  // iterator
+                                         -1,  // position
+                                         columns,
+                                         values,
+                                         count
+                                        );
+      i++;
+    }
+  }
+
+  // free resources
+  if (messageLines != NULL) g_strfreev(messageLines);
+  for (size_t i = 0; i < count; i++)
+  {
+    g_value_unset(&values[i]);
+  }
+}
+
+/***********************************************************************\
 * Name   : printMessage
 * Purpose: print message to message tab
 * Input  : format - printf-like format string
@@ -1343,13 +1476,11 @@ LOCAL void printMessage(gchar const *format, ...)
   g_string_vprintf(message,format,arguments);
   va_end(arguments);
 
-  gtk_list_store_insert_with_values(pluginData.build.messagesStore,
-                                    NULL,
-                                    -1,
-                                    MODEL_MESSAGE_COLOR,   COLOR_BUILD_INFO,
-                                    MODEL_MESSAGE_MESSAGE, message->str,
-                                    MODEL_END
-                                   );
+  appendMessage(COLOR_BUILD_INFO,
+                NULL,  // messageTreePath
+                MODEL_MESSAGE_MESSAGE, message->str,
+                MODEL_END
+               );
 
   g_string_free(message, TRUE);
 }
@@ -1381,7 +1512,7 @@ LOCAL void clearAll()
   }
 
   // clear iterators
-  string_stack_clear(pluginData.build.directoryPrefixStack);
+  stringStackClear(pluginData.build.directoryPrefixStack);
   pluginData.build.errorsTreeIterorValid                = FALSE;
   pluginData.build.warningsTreeIterorValid              = FALSE;
   pluginData.build.lastErrorsWarningsInsertStore        = NULL;
@@ -1508,13 +1639,6 @@ LOCAL gboolean dialogCommand(GtkWindow   *parentWindow,
                              gboolean    *parseOutput
                             )
 {
-  GtkWidget *widgetTitle;
-  GtkWidget *widgetCommandLine;
-  GtkWidget *widgetWorkingDirectory;
-  GtkWidget *widgetShowButton, *widgetShowMenuItem, *widgetInputCustomText, *widgetRunInDockerContainer, *widgetRunRemote, *widgetParseOutput;
-  GtkWidget *widgetOK;
-  gint      result;
-
   g_assert(parentWindow != NULL);
   g_assert(title != NULL);
   g_assert(titleString != NULL);
@@ -1525,6 +1649,13 @@ LOCAL gboolean dialogCommand(GtkWindow   *parentWindow,
   g_assert(inputCustomText != NULL);
   g_assert(runInDockerContainer != NULL);
   g_assert(parseOutput != NULL);
+
+  gint      result;
+  GtkWidget *widgetTitle;
+  GtkWidget *widgetCommandLine;
+  GtkWidget *widgetWorkingDirectory;
+  GtkWidget *widgetShowButton, *widgetShowMenuItem, *widgetInputCustomText, *widgetRunInDockerContainer, *widgetRunRemote, *widgetParseOutput;
+  GtkWidget *widgetOK;
 
   // create dialog
   GtkWidget *dialog = gtk_dialog_new_with_buttons(title,
@@ -1920,7 +2051,7 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
     GError      *error = NULL;
     regex = g_regex_new(regexString,
                         G_REGEX_CASELESS|G_REGEX_MULTILINE,
-                        0, // match option
+                        G_REGEX_MATCH_PARTIAL_SOFT,
                         &error
                        );
     if (regex != NULL)
@@ -1944,7 +2075,9 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
 
         if (filePathMatchNumber >= 0)
         {
-          gtk_entry_set_text(GTK_ENTRY(widgetFilePath), g_match_info_fetch(matchInfo, filePathMatchNumber));
+          gchar *string = g_match_info_fetch(matchInfo, filePathMatchNumber);
+          gtk_entry_set_text(GTK_ENTRY(widgetFilePath), string);
+          g_free(string);
         }
         else
         {
@@ -1952,7 +2085,9 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
         }
         if (lineNumberMatchNumber >= 0)
         {
-          gtk_entry_set_text(GTK_ENTRY(widgetLineNumber), g_match_info_fetch(matchInfo, lineNumberMatchNumber));
+          gchar *string = g_match_info_fetch(matchInfo, lineNumberMatchNumber);
+          gtk_entry_set_text(GTK_ENTRY(widgetLineNumber), string);
+          g_free(string);
         }
         else
         {
@@ -1960,7 +2095,9 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
         }
         if (columnNumberMatchNumber >= 0)
         {
-          gtk_entry_set_text(GTK_ENTRY(widgetColumnNumber), g_match_info_fetch(matchInfo, columnNumberMatchNumber));
+          gchar *string = g_match_info_fetch(matchInfo, columnNumberMatchNumber);
+          gtk_entry_set_text(GTK_ENTRY(widgetColumnNumber), string);
+          g_free(string);
         }
         else
         {
@@ -1968,7 +2105,9 @@ LOCAL void dialogRegexUpdateMatch(GtkWidget *widgetLanguage,
         }
         if (messageMatchNumber >= 0)
         {
-          gtk_entry_set_text(GTK_ENTRY(widgetMessage), g_match_info_fetch(matchInfo, messageMatchNumber));
+          gchar *string = g_match_info_fetch(matchInfo, messageMatchNumber);
+          gtk_entry_set_text(GTK_ENTRY(widgetMessage), string);
+          g_free(string);
         }
         else
         {
@@ -2398,19 +2537,19 @@ LOCAL gboolean dialogRegex(GtkWindow   *parentWindow,
                            const gchar *sample
                           )
 {
+  g_assert(parentWindow != NULL);
+  g_assert(title != NULL);
+  g_assert(groupString != NULL);
+  g_assert(regexType != NULL);
+  g_assert(regexString != NULL);
+
+  gint      result = 0;
   GtkWidget *widgetLanguage;
   GtkWidget *widgetGroup;
   GtkWidget *widgetRegExTypeEnter, *widgetRegExTypeLeave, *widgetRegExTypeError, *widgetRegExTypeWarning, *widgetRegExTypeExtension;
   GtkWidget *widgetRegex, *widgetRegexError, *widgetSample;
   GtkWidget *widgetFilePath, *widgetLineNumber, *widgetColumnNumber, *widgetMessage;
   GtkWidget *widgetOK;
-  gint      result;
-
-  g_assert(parentWindow != NULL);
-  g_assert(title != NULL);
-  g_assert(groupString != NULL);
-  g_assert(regexType != NULL);
-  g_assert(regexString != NULL);
 
   // create dialog
   GtkWidget *dialog = gtk_dialog_new_with_buttons(title,
@@ -2581,13 +2720,13 @@ NULL
 
       // regex result
       addGrid(grid, 5, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("File path"), FALSE, NULL));
-      addGrid(grid, 5, 2, 1, newView (&widgetFilePath, G_OBJECT(dialog), "filePath", NULL));
+      addGrid(grid, 5, 2, 1, newView (&widgetFilePath, G_OBJECT(dialog), "filePath", NULL, NULL));
       addGrid(grid, 6, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Line number"), FALSE, NULL));
-      addGrid(grid, 6, 2, 1, newView (&widgetLineNumber, G_OBJECT(dialog), "lineNumber", NULL));
+      addGrid(grid, 6, 2, 1, newView (&widgetLineNumber, G_OBJECT(dialog), "lineNumber", NULL, NULL));
       addGrid(grid, 7, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Column number"), FALSE, NULL));
-      addGrid(grid, 7, 2, 1, newView (&widgetColumnNumber, G_OBJECT(dialog), "columnNumber", NULL));
+      addGrid(grid, 7, 2, 1, newView (&widgetColumnNumber, G_OBJECT(dialog), "columnNumber", NULL, NULL));
       addGrid(grid, 8, 1, 1, newLabel(NULL, G_OBJECT(dialog), NULL, _("Message"), FALSE, NULL));
-      addGrid(grid, 8, 2, 1, newView (&widgetMessage, G_OBJECT(dialog), "message", NULL));
+      addGrid(grid, 8, 2, 1, newView (&widgetMessage, G_OBJECT(dialog), "message", NULL, NULL));
       plugin_signal_connect(geany_plugin,
                             G_OBJECT(widgetRegex),
                             "changed",
@@ -2596,7 +2735,7 @@ NULL
                             dialog
                            );
       plugin_signal_connect(geany_plugin,
-                            G_OBJECT(widgetSample),
+                            G_OBJECT(gtk_text_view_get_buffer(GTK_TEXT_VIEW(widgetSample))),
                             "changed",
                             FALSE,
                             G_CALLBACK(onInputRegexDialogChanged),
@@ -2647,14 +2786,16 @@ NULL
 * Purpose: add regular expression
 * Input  : sample - sample for regex-match or ""
 * Output : -
-* Return : -
+* Return : TRUE iff regex added
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void addRegex(const gchar *sample)
+LOCAL gboolean addRegex(const gchar *sample)
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
+
+  gboolean result = FALSE;
 
   GString    *regexLanguageString = g_string_new(NULL);
   GString    *regexGroupString    = g_string_new(NULL);
@@ -2690,11 +2831,15 @@ LOCAL void addRegex(const gchar *sample)
                                         MODEL_REGEX_REGEX,    regexString->str,
                                         MODEL_END
                                        );
+
+      result = TRUE;
     }
   }
   g_string_free(regexString, TRUE);
   g_string_free(regexGroupString, TRUE);
   g_string_free(regexLanguageString, TRUE);
+
+  return result;
 }
 
 /***********************************************************************\
@@ -2704,19 +2849,21 @@ LOCAL void addRegex(const gchar *sample)
 *          treeIterator - iterator in model
 *          sample       - sample for regex-match or ""
 * Output : -
-* Return : -
+* Return : TRUE iff regex cloned
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void cloneRegex(GtkListStore *listStore,
-                      GtkTreeIter  *treeIterator,
-                      const gchar  *sample
-                     )
+LOCAL gboolean cloneRegex(GtkListStore *listStore,
+                          GtkTreeIter  *treeIterator,
+                          const gchar  *sample
+                         )
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
   g_assert(listStore != NULL);
   g_assert(treeIterator != NULL);
+
+  gboolean result = FALSE;
 
   gchar       *language;
   gchar       *group;
@@ -2769,6 +2916,8 @@ LOCAL void cloneRegex(GtkListStore *listStore,
                                         MODEL_REGEX_REGEX,    regexString->str,
                                         MODEL_END
                                        );
+
+      result = TRUE;
     }
   }
   g_string_free(regexString, TRUE);
@@ -2778,28 +2927,32 @@ LOCAL void cloneRegex(GtkListStore *listStore,
   g_free(regex);
   g_free(group);
   g_free(language);
+
+  return result;
 }
 
 /***********************************************************************\
 * Name   : editRegex
 * Purpose: edit regular expression
-* Input  : listStore    - model
-*          treeIterator - iterator in model
+* Input  : listStore    - regex list store
+*          treeIterator - regex iterator of regex to edit in list store
 *          sample       - sample for regex-match or ""
 * Output : -
-* Return : -
+* Return : TRUE iff regex edited
 * Notes  : -
 \***********************************************************************/
 
-LOCAL void editRegex(GtkListStore *listStore,
-                     GtkTreeIter  *treeIterator,
-                     const gchar  *sample
-                    )
+LOCAL gboolean editRegex(GtkListStore *listStore,
+                         GtkTreeIter  *treeIterator,
+                         const gchar  *sample
+                        )
 {
   g_assert(geany_data != NULL);
   g_assert(geany_data->main_widgets != NULL);
   g_assert(listStore != NULL);
   g_assert(treeIterator != NULL);
+
+  gboolean result = FALSE;
 
   gchar       *language;
   gchar       *group;
@@ -2843,7 +2996,9 @@ LOCAL void editRegex(GtkListStore *listStore,
                        MODEL_REGEX_REGEX,    regexString->str,
                        MODEL_END
                       );
-  }
+
+    result = TRUE;
+   }
   g_string_free(regexString, TRUE);
   g_string_free(groupString, TRUE);
   g_string_free(languageString, TRUE);
@@ -2851,6 +3006,8 @@ LOCAL void editRegex(GtkListStore *listStore,
   g_free(regex);
   g_free(group);
   g_free(language);
+
+  return result;
 }
 
 // ---------------------------------------------------------------------
@@ -3146,117 +3303,175 @@ LOCAL void showNextWarning()
 * Name   : isMatchingRegex
 * Purpose: check if regular expression match to line
 * Input  : regexString - regular expression string
-*          line        - line
-* Output : matchCount    - match count
-*          directoryPath - directory path
-*          filePath      - file path
-*          lineNumber    - line number
-*          columnNumber  - column number
-*          message       - message
-* Return : TRUE iff reqular expression matches line
+*          text        - text
+* Output : groupMatchCount - number of match groups
+*          directoryPath   - directory path
+*          filePath        - file path
+*          lineNumber      - line number
+*          columnNumber    - column number
+*          message         - message
+* Return : match type; see MATCH_TYPE_...
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean isMatchingRegex(const gchar  *regexString,
-                               const gchar  *line,
-                               gint         *matchCount,
-                               GString      *directoryPath,
-                               GString      *filePath,
-                               guint        *lineNumber,
-                               guint        *columnNumber,
-                               GString      *message
-                              )
+LOCAL MatchTypes isMatchingRegex(const gchar  *regexString,
+                                 const gchar  *text,
+                                 guint        *matchCount,
+                                 guint        *groupMatchCount,
+                                 GString      *directoryPath,
+                                 GString      *filePath,
+                                 guint        *lineNumber,
+                                 guint        *columnNumber,
+                                 GString      *message
+                                )
 {
-  gboolean matchesRegEx = FALSE;
-
-  GRegex      *regex;
-  GMatchInfo  *matchInfo;
-
   g_assert(regexString != NULL);
-  g_assert(line != NULL);
+  g_assert(text != NULL);
+  g_assert(matchCount != NULL);
+  g_assert(groupMatchCount != NULL);
   g_assert(filePath != NULL);
   g_assert(lineNumber != NULL);
   g_assert(message != NULL);
 
-  (*matchCount) = 0;
+  MatchTypes matchType = MATCH_TYPE_NONE;
 
-  regex = g_regex_new(regexString,
-                      G_REGEX_CASELESS|G_REGEX_MULTILINE,
-                      0, // match option
-                      NULL // error
-                     );
+  (*matchCount)      = 0;
+  (*groupMatchCount) = 0;
+
+  GRegex *regex = g_regex_new(regexString,
+                              G_REGEX_CASELESS|G_REGEX_MULTILINE,
+                              G_REGEX_MATCH_PARTIAL_SOFT,
+                              NULL // error
+                             );
   if (regex != NULL)
   {
-    matchesRegEx = g_regex_match(regex, line, 0, &matchInfo);
-    if (matchesRegEx)
+    GMatchInfo *matchInfo;
+    if      (g_regex_match(regex, text, 0, &matchInfo))
     {
+      // full match
       gint directoryMatchNumber    = g_regex_get_string_number(regex, "directory");
       gint filePathMatchNumber     = g_regex_get_string_number(regex, "filePath");
       gint lineNumberMatchNumber   = g_regex_get_string_number(regex, "lineNumber");
       gint columnNumberMatchNumber = g_regex_get_string_number(regex, "columnNumber");
       gint messageMatchNumber      = g_regex_get_string_number(regex, "message");
-      if (directoryMatchNumber    >= 0) { if (matchCount != NULL) (*matchCount)++; } else { directoryMatchNumber    = 1; }
-      if (filePathMatchNumber     >= 0) { if (matchCount != NULL) (*matchCount)++; } else { filePathMatchNumber     = 2; }
-      if (lineNumberMatchNumber   >= 0) { if (matchCount != NULL) (*matchCount)++; } else { lineNumberMatchNumber   = 3; }
-      if (columnNumberMatchNumber >= 0) { if (matchCount != NULL) (*matchCount)++; } else { columnNumberMatchNumber = 4; }
-      if (messageMatchNumber      >= 0) { if (matchCount != NULL) (*matchCount)++; } else { messageMatchNumber      = 5; }
+      if (directoryMatchNumber    >= 0) { if (groupMatchCount != NULL) (*groupMatchCount)++; } else { directoryMatchNumber    = 1; }
+      if (filePathMatchNumber     >= 0) { if (groupMatchCount != NULL) (*groupMatchCount)++; } else { filePathMatchNumber     = 2; }
+      if (lineNumberMatchNumber   >= 0) { if (groupMatchCount != NULL) (*groupMatchCount)++; } else { lineNumberMatchNumber   = 3; }
+      if (columnNumberMatchNumber >= 0) { if (groupMatchCount != NULL) (*groupMatchCount)++; } else { columnNumberMatchNumber = 4; }
+      if (messageMatchNumber      >= 0) { if (groupMatchCount != NULL) (*groupMatchCount)++; } else { messageMatchNumber      = 5; }
 
-      g_string_assign(directoryPath,
-                      (g_match_info_get_match_count(matchInfo) > directoryMatchNumber)
-                        ? g_match_info_fetch(matchInfo, directoryMatchNumber)
-                        : g_strdup("")
-                     );
-      g_string_assign(filePath,
-                      (g_match_info_get_match_count(matchInfo) > filePathMatchNumber)
-                        ? g_match_info_fetch(matchInfo, filePathMatchNumber)
-                        : g_strdup("")
-                     );
+      // get match count
+      gint start, end;
+      (*matchCount) = g_match_info_fetch_pos(matchInfo, 0, &start, &end)
+                        ? end-start
+                        : 0;
+
+      // get directory
+      if (g_match_info_get_match_count(matchInfo) > directoryMatchNumber)
+      {
+        gchar *string = g_match_info_fetch(matchInfo, directoryMatchNumber);
+        g_string_assign(directoryPath, string);
+        g_free(string);
+      }
+      else
+      {
+        g_string_assign(directoryPath, "");
+      }
+
+      // get file name
+      if (g_match_info_get_match_count(matchInfo) > filePathMatchNumber)
+      {
+        gchar *string = g_match_info_fetch(matchInfo, filePathMatchNumber);
+        g_string_assign(filePath, string);
+        g_free(string);
+      }
+      else
+      {
+        g_string_assign(filePath, "");
+      }
+
+      // get line/column numbers
       (*lineNumber)   = (g_match_info_get_match_count(matchInfo) > lineNumberMatchNumber)
                           ? (guint)g_ascii_strtoull(g_match_info_fetch(matchInfo, lineNumberMatchNumber), NULL, 10)
                           : 0;
       (*columnNumber) = (g_match_info_get_match_count(matchInfo) > columnNumberMatchNumber)
                           ? (guint)g_ascii_strtoull(g_match_info_fetch(matchInfo, columnNumberMatchNumber), NULL, 10)
                           : 0;
-      g_string_assign(message,
-                      (g_match_info_get_match_count(matchInfo) > messageMatchNumber)
-                        ? g_match_info_fetch(matchInfo, messageMatchNumber)
-                        : g_strdup("")
-                     );
+
+      // get message
+      if (g_match_info_get_match_count(matchInfo) > messageMatchNumber)
+      {
+        gchar      *string = g_match_info_fetch(matchInfo, messageMatchNumber);
+        const char *s = string;
+        while ((*s) != '\0')
+        {
+          gunichar ch = g_utf8_get_char(s);
+          if (g_unichar_isprint(ch))
+          {
+            g_string_append_unichar(message, ch);
+          }
+          else
+          {
+            g_string_append(message, ", ");
+          }
+          s = g_utf8_next_char(s);
+        }
+        g_free(string);
+      }
+      else
+      {
+        g_string_assign(message, "");
+      }
+
+//fprintf(stderr,"%s:%d: matchCount=%u groupMatchCount=%u\n",__FILE__,__LINE__,*matchCount,*groupMatchCount);
+      matchType = MATCH_TYPE_FULL;
+    }
+    else if (g_match_info_is_partial_match(matchInfo))
+    {
+      // partical match
+      matchType = MATCH_TYPE_PARTIAL;
     }
     g_match_info_free(matchInfo);
     g_regex_unref(regex);
   }
 
-  return matchesRegEx;
+  return matchType;
 }
 
 /***********************************************************************\
 * Name   : isMatchingRegexs
-* Purpose: check if regular expression from model match to line
-* Input  : listStore       - model with regular expressions
-*          regexTypeFilter - regular expression types filter
-*          line            - line
-* Output : matchTreePathString - best matching tree path string
-*          filePathString      - file path on match
-*          lineNumber          - line number on match
-*          columnNumber        - column number on match
-*          messageString       - message on match
-* Return : TRUE iff at least one reqular expression matches line
+* Purpose: find best matching regular expression from list matching to
+*          text
+* Input  : listStore        - list with regular expressions
+*          text             - text to match
+*          regexTypeFilter  - regular expression types filter
+*          workingDirectory - current working directory (absolute)
+* Output : bestMatchCount      - best match count
+*          matchTreePathString - matching tree path string for best match
+*          filePathString      - file path for best match
+*          lineNumber          - line number for best match
+*          columnNumber        - column number for best match
+*          messageString       - message for best match
+* Return : match type; see MATCH_TYPE_...
 * Notes  : -
 \***********************************************************************/
 
-LOCAL gboolean isMatchingRegexs(GtkListStore *listStore,
-                                const gchar  *line,
-                                GString      *matchTreePathString,
-                                RegexTypes   *regexType,
-                                GString      *filePathString,
-                                guint        *lineNumber,
-                                guint        *columnNumber,
-                                GString      *messageString
-                               )
+LOCAL MatchTypes isMatchingRegexs(GtkListStore *regExListStore,
+                                  const gchar  *text,
+                                  guint        regexTypeFilter,
+                                  const gchar  *workingDirectory,
+                                  guint        *bestMatchCount,
+                                  GString      *matchTreePathString,
+                                  RegexTypes   *regexType,
+                                  GString      *filePathString,
+                                  guint        *lineNumber,
+                                  guint        *columnNumber,
+                                  GString      *messageString
+                                 )
 {
-  g_assert(listStore != NULL);
-  g_assert(line != NULL);
+  g_assert(regExListStore != NULL);
+  g_assert(text != NULL);
+  g_assert(workingDirectory != NULL);
   g_assert(matchTreePathString != NULL);
   g_assert(regexType != NULL);
   g_assert(filePathString != NULL);
@@ -3264,28 +3479,30 @@ LOCAL gboolean isMatchingRegexs(GtkListStore *listStore,
   g_assert(columnNumber != NULL);
   g_assert(messageString != NULL);
 
-  gint bestMatchCount = -1;
+  MatchTypes bestMatchType = MATCH_TYPE_NONE;
 
-  (*regexType)    = REGEX_TYPE_NONE;
+  (*bestMatchCount) = 0;
+  (*regexType)      = REGEX_TYPE_NONE;
   g_string_assign(filePathString, "");
-  (*lineNumber)   = 0;
-  (*columnNumber) = 0;
+  (*lineNumber)     = 0;
+  (*columnNumber)   = 0;
   g_string_assign(messageString, "");
 
   GtkTreeIter treeIterator;
-  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(listStore), &treeIterator))
+  if (gtk_tree_model_get_iter_first(GTK_TREE_MODEL(regExListStore), &treeIterator))
   {
     GString *matchDirectoryPathString = g_string_new(NULL);
     GString *matchFilePathString      = g_string_new(NULL);
     uint    matchLineNumber;
     uint    matchColumnNumber;
     GString *matchMessageString       = g_string_new(NULL);
+    guint   bestGroupMatchCount       = 0;
     do
     {
       gchar      *checkRegExLanguage;
       RegexTypes checkRegExType;
       gchar      *checkRegEx;
-      gtk_tree_model_get(GTK_TREE_MODEL(listStore),
+      gtk_tree_model_get(GTK_TREE_MODEL(regExListStore),
                          &treeIterator,
                          MODEL_REGEX_LANGUAGE, &checkRegExLanguage,
                          MODEL_REGEX_TYPE,     &checkRegExType,
@@ -3296,154 +3513,102 @@ LOCAL gboolean isMatchingRegexs(GtkListStore *listStore,
       g_assert(checkRegExType >= REGEX_TYPE_MIN);
       g_assert(checkRegExType <= REGEX_TYPE_MAX);
       g_assert(checkRegEx != NULL);
-
 //fprintf(stderr,"%s:%d: checkRegExLanguage=%s, checkRegEx=%s\n",__FILE__,__LINE__,checkRegExLanguage,checkRegEx);
 
-#if 0
-      // get current document (if possible)
-      GeanyDocument *document = document_get_current();
-      GeanyFiletype *fileType = filetypes_lookup_by_name(checkRegExLanguage);
-      if (   (document == NULL)
-          || (fileType == NULL)
-          || (document->file_type == NULL)
-          || (document->file_type->id == fileType->id)
-         )
-#endif
+      if ((checkRegExType & regexTypeFilter) != 0)
       {
-#if 0
-        GRegex     *regex;
-        GMatchInfo *matchInfo;
-        regex = g_regex_new(checkRegEx,
-                            G_REGEX_CASELESS|G_REGEX_MULTILINE,
-                            0, // match option
-                            NULL // error
-                           );
-        if (regex != NULL)
+        guint      matchCount;
+        guint      groupMatchCount;
+        MatchTypes matchType = isMatchingRegex(checkRegEx,
+                                               text,
+                                               &matchCount,
+                                               &groupMatchCount,
+                                               matchDirectoryPathString,
+                                               matchFilePathString,
+                                               &matchLineNumber,
+                                               &matchColumnNumber,
+                                               matchMessageString
+                                              );
+        switch (matchType)
         {
-          if (g_regex_match(regex, line, 0, &matchInfo))
-          {
-            gint directoryMatchNumber    = g_regex_get_string_number(regex, "directory");
-            gint filePathMatchNumber     = g_regex_get_string_number(regex, "filePath");
-            gint lineNumberMatchNumber   = g_regex_get_string_number(regex, "lineNumber");
-            gint columnNumberMatchNumber = g_regex_get_string_number(regex, "columnNumber");
-            gint messageMatchNumber      = g_regex_get_string_number(regex, "message");
-
-            gint matchCount = 0;
-            if (directoryMatchNumber    >= 0) { matchCount++; };// else { directoryMatchNumber    = 1; }
-            if (filePathMatchNumber     >= 0) { matchCount++; };// else { filePathMatchNumber     = 1; }
-            if (lineNumberMatchNumber   >= 0) { matchCount++; };// else { lineNumberMatchNumber   = 2; }
-            if (columnNumberMatchNumber >= 0) { matchCount++; };// else { columnNumberMatchNumber = 3; }
-            if (messageMatchNumber      >= 0) { matchCount++; };// else { messageMatchNumber      = 4; }
-
-            if (matchCount > bestMatchCount)
+          case MATCH_TYPE_NONE:
+            break;
+          case MATCH_TYPE_PARTIAL:
+            if (bestMatchType < MATCH_TYPE_PARTIAL)
             {
-              gchar *matchTreePath = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(listStore), &treeIter);
-              g_string_assign(matchTreePathString, matchTreePath);
-              g_free(matchTreePath);
-
-              (*regexType) = checkRegExType;
-
-              // get directory
-              if      (directoryMatchNumber >= 0)
-              {
-                if (g_match_info_get_match_count(matchInfo) > directoryMatchNumber)
-                {
-                  gchar *string = g_match_info_fetch(matchInfo, directoryMatchNumber);
-                  g_string_assign(filePathString, string);
-                  g_free(string);
-                }
-              }
-              else if (filePathMatchNumber >= 0)
-              {
-                if (g_match_info_get_match_count(matchInfo) > filePathMatchNumber)
-                {
-                  gchar *string = g_match_info_fetch(matchInfo, filePathMatchNumber);
-                  g_string_assign(filePathString, string);
-                  g_free(string);
-                }
-              }
-
-              // get line number
-              if (lineNumberMatchNumber >= 0)
-              {
-                if (g_match_info_get_match_count(matchInfo) > lineNumberMatchNumber)
-                {
-                  gchar *string = g_match_info_fetch(matchInfo, lineNumberMatchNumber);
-                  (*lineNumber) = (guint)g_ascii_strtoull(string, NULL, 10);
-                  g_free(string);
-                }
-              }
-
-              // get column number
-              if (columnNumberMatchNumber >= 0)
-              {
-                if (g_match_info_get_match_count(matchInfo) > columnNumberMatchNumber)
-                {
-                  gchar *string = g_match_info_fetch(matchInfo, columnNumberMatchNumber);
-                  (*columnNumber) = (guint)g_ascii_strtoull(string, NULL, 10);
-                  g_free(string);
-                }
-              }
-
-              // get message
-              if (messageMatchNumber >= 0)
-              {
-                if (g_match_info_get_match_count(matchInfo) > messageMatchNumber)
-                {
-                  gchar *string = g_match_info_fetch(matchInfo, messageMatchNumber);
-                  g_string_assign(messageString, string);
-                  g_free(string);
-                }
-              }
-
-              bestMatchCount = matchCount;
+              bestMatchType = MATCH_TYPE_PARTIAL;
             }
-          }
-          g_match_info_free(matchInfo);
-          g_regex_unref(regex);
-        }
-#else
-        gint matchCount;
-        if (isMatchingRegex(checkRegEx,
-                            line,
-                            &matchCount,
-                            matchDirectoryPathString,
-                            matchFilePathString,
-                            &matchLineNumber,
-                            &matchColumnNumber,
-                            matchMessageString
-                           )
-           )
-        {
-//fprintf(stderr,"%s:%d: checkregex=%s line=%s -> matchCount=%d\n",__FILE__,__LINE__,checkRegEx,line,matchCount);
-          if (matchCount > bestMatchCount)
-          {
-            gchar *matchTreePath = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(listStore), &treeIterator);
-            g_string_assign(matchTreePathString, matchTreePath);
-            g_free(matchTreePath);
+            break;
+          case MATCH_TYPE_FULL:
+            {
+//fprintf(stderr,"%s:%d: %d matchCount=%d\n",__FILE__,__LINE__,matchType,matchCount);
+//fprintf(stderr,"%s:%d: workingDirectory=%s\n",__FILE__,__LINE__,workingDirectory);
+//fprintf(stderr,"%s:%d: matchDirectoryPathString=%s\n",__FILE__,__LINE__,matchDirectoryPathString->str);
+//fprintf(stderr,"%s:%d: matchFilePathString=%s\n",__FILE__,__LINE__,matchFilePathString->str);
+//fprintf(stderr,"%s:%d: checkregex=%s text='%s' -> matchCount=%u groupMatchCount=%u\n",__FILE__,__LINE__,checkRegEx,text,matchCount,groupMatchCount);
+              // check file type
+//            filetypes_detect_from_extension(matchFilePathString->str);
+              GeanyFiletype *fileType1 = NULL;
+              if (g_file_test(matchFilePathString->str, G_FILE_TEST_IS_REGULAR))
+              {
+                fileType1 = filetypes_detect_from_file(matchFilePathString->str);
+              }
+              else
+              {
+                gchar *filePath = getAbsolutePath(workingDirectory,matchFilePathString->str);
+                if (g_file_test(filePath, G_FILE_TEST_IS_REGULAR))
+                {
+                  fileType1 = filetypes_detect_from_file(filePath);
+                }
+                g_free(filePath);
+              }
+              GeanyFiletype *fileType2 = filetypes_lookup_by_name(checkRegExLanguage);
+//if (matchCount > 0)
+//fprintf(stderr,"%s:%d: file types: 1=%s 2=%s\n",__FILE__,__LINE__,(fileType1 != NULL) ? filetypes_get_display_name(fileType1) : "unknown", (fileType2 != NULL) ? filetypes_get_display_name(fileType2) : "unknown");
+              gboolean fileTypeMatch =    ((fileType1 == NULL) && (fileType2 == NULL))
+                                       || ((fileType1 != NULL) && (fileType2 != NULL) && (fileType1->id == fileType2->id));
+              if (fileTypeMatch)
+              {
+//fprintf(stderr,"%s:%d: fileTypeMatch=%d matchCount=%d\n",__FILE__,__LINE__,fileTypeMatch,matchCount);
+                // store best match
+                if (matchCount > (*bestMatchCount))
+                {
+                  bestMatchType     = MATCH_TYPE_FULL;
+                  (*bestMatchCount) = matchCount;
+                }
 
-            (*regexType) = checkRegExType;
+                // store best group match
+                if (groupMatchCount > bestGroupMatchCount)
+                {
+                  gchar *matchTreePath = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(regExListStore), &treeIterator);
+                  g_string_assign(matchTreePathString, matchTreePath);
+                  g_free(matchTreePath);
 
-            g_string_assign(filePathString, matchFilePathString->str);
-            (*lineNumber)   = matchLineNumber;
-            (*columnNumber) = matchColumnNumber;
-            g_string_assign(messageString, matchMessageString->str);
-            bestMatchCount  = matchCount;
-          }
+                  (*regexType) = checkRegExType;
+
+                  g_string_assign(filePathString, matchFilePathString->str);
+                  (*lineNumber)   = matchLineNumber;
+                  (*columnNumber) = matchColumnNumber;
+                  g_string_assign(messageString, matchMessageString->str);
+
+                  bestGroupMatchCount = groupMatchCount;
+                }
+              }
+            }
+            break;
         }
-#endif
       }
       g_free(checkRegEx);
       g_free(checkRegExLanguage);
     }
-    while (gtk_tree_model_iter_next(GTK_TREE_MODEL(listStore), &treeIterator));
+    while (gtk_tree_model_iter_next(GTK_TREE_MODEL(regExListStore), &treeIterator));
     g_string_free(matchMessageString,TRUE);
     g_string_free(matchFilePathString,TRUE);
     g_string_free(matchDirectoryPathString,TRUE);
+//fprintf(stderr,"%s:%d: bestMatchCount=%u bestGroupMatchCount=%u\n",__FILE__,__LINE__,*bestMatchCount,bestGroupMatchCount);
   }
-//fprintf(stderr,"%s:%d: bestMatchCount=%d\n",__FILE__,__LINE__,bestMatchCount);
 
-  return (bestMatchCount >= 0);
+  return bestMatchType;
 }
 
 /***********************************************************************\
@@ -3513,177 +3678,64 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
   g_assert(line != NULL);
   g_assert(userData != NULL);
 
-  gboolean parseOutput = (gboolean)GPOINTER_TO_UINT(userData);
+  ExecuteCommandOutput *executeCommandOutput = (ExecuteCommandOutput*)userData;
 
-  // prepare empty line in message tab
-  gtk_list_store_insert(pluginData.build.messagesStore,
-                        &pluginData.build.messageTreeIterator,
-                        MODEL_END
-                       );
-  gchar *messageTreePath = gtk_tree_model_get_string_from_iter(GTK_TREE_MODEL(pluginData.build.messagesStore),
-                                                               &pluginData.build.messageTreeIterator
-                                                              );
-
-  if (parseOutput)
+  if (executeCommandOutput->parseOutput)
   {
+    // append to output text
+    if (executeCommandOutput->text->len > 0)
+    {
+      g_string_append_c(executeCommandOutput->text,'\n');
+    }
+    g_string_append(executeCommandOutput->text, line);
+
     // find match
-    gchar       *absoluteDirectory   = NULL;
-    RegexTypes  regexType;
     GString     *matchTreePathString = g_string_new(NULL);
     GString     *filePathString      = g_string_new(NULL);
     guint       lineNumber, columnNumber;
     GString     *messageString       = g_string_new(NULL);
-    const gchar *messageColor        = COLOR_BUILD_MESSAGES;
-    if      (isMatchingRegexs(pluginData.configuration.regexStore,
-                              line,
-                              matchTreePathString,
-                              &regexType,
-                              filePathString,
-                              &lineNumber,
-                              &columnNumber,
-                              messageString
-                             )
+
+    if      (   (pluginData.projectProperties.errorRegEx->len > 0)
+             && (isMatchingRegex(pluginData.projectProperties.errorRegEx->str,
+                                 executeCommandOutput->text->str,
+                                 NULL,  // matchCount
+                                 NULL,  // groupMatchCount
+                                 NULL,  // directortPathString
+                                 filePathString,
+                                 &lineNumber,
+                                 &columnNumber,
+                                 messageString
+                                ) == MATCH_TYPE_FULL
+                )
             )
     {
-      switch (regexType)
-      {
-        case REGEX_TYPE_NONE:
-          break;
-        case REGEX_TYPE_ENTER:
-          // get directory prefix
-          string_stack_push(pluginData.build.directoryPrefixStack, filePathString->str);
-          break;
-        case REGEX_TYPE_LEAVE:
-          // clear directory prefix
-          string_stack_pop(pluginData.build.directoryPrefixStack);
-          break;
-        case REGEX_TYPE_ERROR:
-          // insert error message
-          absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                                   string_stack_top(pluginData.build.directoryPrefixStack),
-                                                   NULL
-                                                  );
-          gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
-                                            &pluginData.build.insertIterator,
-                                            NULL,  // parent
-                                            -1,  // position
-                                            MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                            MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
-                                            MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
-                                            MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
-                                            MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
-                                            MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
-                                            MODEL_END
-                                           );
+      // match project extra error regular expression
 
-          // set indicator (if document is loaded)
-          if (   pluginData.configuration.errorIndicators
-              && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
-             )
-          {
-            setIndicator(filePathString->str, lineNumber, &pluginData.configuration.errorIndicatorColor, ERROR_INDICATOR_INDEX);
+      gchar *currentWorkingDirectory = getAbsoluteDirectory(workingDirectory,
+                                                            stringStackPeek(pluginData.build.directoryPrefixStack),
+                                                            NULL
+                                                           );
 
-            pluginData.build.errorWarningIndicatorsCount++;
-          }
+      // add message to builder message tab
+      gchar *messageTreePath;
+      appendMessage(COLOR_BUILD_MESSAGES_MATCHED_ERROR,
+                    &messageTreePath,
+                    MODEL_MESSAGE_TREE_PATH,     matchTreePathString->str,
+                    MODEL_MESSAGE_DIRECTORY,     currentWorkingDirectory,
+                    MODEL_MESSAGE_FILE_PATH,     filePathString->str,
+                    MODEL_MESSAGE_LINE_NUMBER,   lineNumber,
+                    MODEL_MESSAGE_COLUMN_NUMBER, columnNumber,
+                    MODEL_MESSAGE_MESSAGE,       executeCommandOutput->text->str,
+                    MODEL_END
+                   );
 
-          // get message color
-          messageColor = COLOR_BUILD_MESSAGES_MATCHED_ERROR;
-
-          // save last insert position
-          pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.errorsStore;
-          pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
-          pluginData.build.lastErrorsWarningsInsertColor        = messageColor;
-          break;
-        case REGEX_TYPE_WARNING:
-          // insert warning message
-          absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                                   string_stack_top(pluginData.build.directoryPrefixStack),
-                                                   NULL
-                                                  );
-          gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
-                                            &pluginData.build.insertIterator,
-                                            NULL,  // parent
-                                            -1,  // position
-                                            MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                            MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
-                                            MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
-                                            MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
-                                            MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
-                                            MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
-                                            MODEL_END
-                                           );
-
-          // set indicator (if document is loaded)
-          if (   pluginData.configuration.warningIndicators
-              && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
-             )
-          {
-            setIndicator(filePathString->str, lineNumber, &pluginData.configuration.warningIndicatorColor, WARNING_INDICATOR_INDEX);
-
-            pluginData.build.errorWarningIndicatorsCount++;
-          }
-
-          // get message color
-          messageColor = COLOR_BUILD_MESSAGES_MATCHED_WARNING;
-
-          // save last insert position
-          pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.warningsStore;
-          pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
-          pluginData.build.lastErrorsWarningsInsertColor        = messageColor;
-          break;
-        case REGEX_TYPE_EXTENSION:
-          // append to last error/warning message
-          if (   (pluginData.build.lastErrorsWarningsInsertStore != NULL)
-              && (pluginData.build.lastErrorsWarningsInsertTreeIterator != NULL)
-             )
-          {
-            absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                                     string_stack_top(pluginData.build.directoryPrefixStack),
-                                                   NULL
-                                                    );
-            gtk_tree_store_insert_with_values(pluginData.build.lastErrorsWarningsInsertStore,
-                                              NULL,
-                                              pluginData.build.lastErrorsWarningsInsertTreeIterator,
-                                              -1,  // position
-                                              MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                              MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
-                                              MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
-                                              MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
-                                              MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
-                                              MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
-                                              MODEL_END
-                                             );
-          }
-
-          // get message color
-          messageColor = pluginData.build.lastErrorsWarningsInsertColor;
-          break;
-      }
-    }
-    else if (   (pluginData.projectProperties.errorRegEx->len > 0)
-             && isMatchingRegex(pluginData.projectProperties.errorRegEx->str,
-                                line,
-                                NULL,  // matchCoung
-                                NULL,  // directortPathString
-                                filePathString,
-                                &lineNumber,
-                                &columnNumber,
-                                messageString
-                               )
-
-            )
-    {
       // insert error message
-      absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                               string_stack_top(pluginData.build.directoryPrefixStack),
-                                               NULL
-                                              );
       gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
                                         &pluginData.build.insertIterator,
                                         NULL,  // parent
                                         -1,  // position
                                         MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                        MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
+                                        MODEL_ERROR_WARNING_DIRECTORY,     currentWorkingDirectory,
                                         MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
                                         MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
                                         MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
@@ -3705,33 +3757,54 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
       pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.errorsStore;
       pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
 
-      // get message color
-      messageColor = COLOR_BUILD_MESSAGES_MATCHED_ERROR;
+      // clear processed output text
+      g_string_truncate(executeCommandOutput->text, 0);
+
+      // free resources
+      g_free(messageTreePath);
+      g_free(currentWorkingDirectory);
     }
     else if (   (pluginData.projectProperties.warningRegEx->len > 0)
-             && isMatchingRegex(pluginData.projectProperties.warningRegEx->str,
-                                line,
-                                NULL,  // matchCoung
-                                NULL,  // matchDirectoryPathString
-                                filePathString,
-                                &lineNumber,
-                                &columnNumber,
-                                messageString
-                               )
-
+             && (isMatchingRegex(pluginData.projectProperties.warningRegEx->str,
+                                 executeCommandOutput->text->str,
+                                 NULL,  // matchCount
+                                 NULL,  // groupMatchCount
+                                 NULL,  // matchDirectoryPathString
+                                 filePathString,
+                                 &lineNumber,
+                                 &columnNumber,
+                                 messageString
+                                ) == MATCH_TYPE_FULL
+                )
             )
     {
+      // match project extra warning regular expression
+
+      gchar *currentWorkingDirectory = getAbsoluteDirectory(workingDirectory,
+                                                            stringStackPeek(pluginData.build.directoryPrefixStack),
+                                                            NULL
+                                                           );
+
+      // add message to builder message tab
+      gchar *messageTreePath;
+      appendMessage(COLOR_BUILD_MESSAGES_MATCHED_WARNING,
+                    &messageTreePath,
+                    MODEL_MESSAGE_TREE_PATH,     matchTreePathString->str,
+                    MODEL_MESSAGE_DIRECTORY,     currentWorkingDirectory,
+                    MODEL_MESSAGE_FILE_PATH,     filePathString->str,
+                    MODEL_MESSAGE_LINE_NUMBER,   lineNumber,
+                    MODEL_MESSAGE_COLUMN_NUMBER, columnNumber,
+                    MODEL_MESSAGE_MESSAGE,       executeCommandOutput->text->str,
+                    MODEL_END
+                   );
+
       // insert warning message
-      absoluteDirectory = getAbsoluteDirectory(workingDirectory,
-                                               string_stack_top(pluginData.build.directoryPrefixStack),
-                                               NULL
-                                              );
       gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
                                         &pluginData.build.insertIterator,
                                         NULL,  // parent
                                         -1,  // position
                                         MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
-                                        MODEL_ERROR_WARNING_DIRECTORY,     absoluteDirectory,
+                                        MODEL_ERROR_WARNING_DIRECTORY,     currentWorkingDirectory,
                                         MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
                                         MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
                                         MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
@@ -3753,22 +3826,214 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
       pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.warningsStore;
       pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
 
-      // get message color
-      messageColor = COLOR_BUILD_MESSAGES_MATCHED_WARNING;
-    }
+      // clear processed output text
+      g_string_truncate(executeCommandOutput->text, 0);
 
-    // set message in builder message tab
-    gtk_list_store_set(pluginData.build.messagesStore,
-                       &pluginData.build.messageTreeIterator,
-                       MODEL_MESSAGE_COLOR,         messageColor,
-                       MODEL_MESSAGE_TREE_PATH,     matchTreePathString->str,
-                       MODEL_MESSAGE_DIRECTORY,     absoluteDirectory,
-                       MODEL_MESSAGE_FILE_PATH,     filePathString->str,
-                       MODEL_MESSAGE_LINE_NUMBER,   lineNumber,
-                       MODEL_MESSAGE_COLUMN_NUMBER, columnNumber,
-                       MODEL_MESSAGE_MESSAGE,       line,
-                       MODEL_END
-                      );
+      // free resources
+      g_free(messageTreePath);
+      g_free(currentWorkingDirectory);
+    }
+    else
+    {
+      gchar *currentWorkingDirectory = getAbsoluteDirectory(workingDirectory,
+                                                            stringStackPeek(pluginData.build.directoryPrefixStack),
+                                                            NULL
+                                                           );
+
+      // try match with regular expression list
+      guint      matchCount;
+      RegexTypes regexType;
+      MatchTypes matchType = isMatchingRegexs(pluginData.configuration.regexStore,
+                                              executeCommandOutput->text->str,
+                                              (pluginData.build.lastErrorsWarningsInsertStore != NULL)
+                                                ? REGEX_TYPE_ENTER|REGEX_TYPE_LEAVE|REGEX_TYPE_ERROR|REGEX_TYPE_WARNING|REGEX_TYPE_EXTENSION
+                                                : REGEX_TYPE_ENTER|REGEX_TYPE_LEAVE|REGEX_TYPE_ERROR|REGEX_TYPE_WARNING,
+                                              currentWorkingDirectory,
+                                              &matchCount,
+                                              matchTreePathString,
+                                              &regexType,
+                                              filePathString,
+                                              &lineNumber,
+                                              &columnNumber,
+                                              messageString
+                                             );
+      switch (matchType)
+      {
+        case MATCH_TYPE_NONE:
+          // add message to builder message tab
+          appendMessage(COLOR_BUILD_MESSAGES,
+                        NULL,  // messageTreePath
+                        MODEL_MESSAGE_MESSAGE, executeCommandOutput->text->str,
+                        MODEL_END
+                       );
+
+          // clear processed output text
+          g_string_truncate(executeCommandOutput->text, 0);
+          break;
+        case MATCH_TYPE_PARTIAL:
+          // keep output text for next match try
+          break;
+        case MATCH_TYPE_FULL:
+          // process match
+          switch (regexType)
+          {
+            case REGEX_TYPE_NONE:
+              break;
+            case REGEX_TYPE_ENTER:
+              // add message to builder message tab
+              appendMessage(COLOR_BUILD_MESSAGES,
+                            NULL,  // messageTreePath
+                            MODEL_MESSAGE_MESSAGE, executeCommandOutput->text->str,
+                            MODEL_END
+                           );
+
+              // get directory prefix
+              stringStackPush(pluginData.build.directoryPrefixStack, filePathString->str);
+
+              // clear processed output text
+              g_string_truncate(executeCommandOutput->text, 0);
+              break;
+            case REGEX_TYPE_LEAVE:
+              appendMessage(COLOR_BUILD_MESSAGES,
+                            NULL,  // messageTreePath
+                            MODEL_MESSAGE_MESSAGE, executeCommandOutput->text->str,
+                            MODEL_END
+                           );
+
+              // clear last directory prefix
+              stringStackPop(pluginData.build.directoryPrefixStack);
+
+              // clear processed output text
+              g_string_truncate(executeCommandOutput->text, 0);
+              break;
+            case REGEX_TYPE_ERROR:
+            case REGEX_TYPE_WARNING:
+            case REGEX_TYPE_EXTENSION:
+              {
+                // get tab insert color
+                const char *insertColor = NULL;
+                switch (regexType)
+                {
+                  case REGEX_TYPE_ERROR:     insertColor = COLOR_BUILD_MESSAGES_MATCHED_ERROR;             break;
+                  case REGEX_TYPE_WARNING:   insertColor = COLOR_BUILD_MESSAGES_MATCHED_WARNING;           break;
+                  case REGEX_TYPE_EXTENSION: insertColor = pluginData.build.lastErrorsWarningsInsertColor; break;
+                  default:
+                    HALT_INTERNAL_ERROR_UNHANDLED_SWITCH_CASE();
+                    break;
+                }
+
+                // add message to builder message tab
+                gchar *messageTreePath;
+                appendMessage(insertColor,
+                              &messageTreePath,
+                              MODEL_MESSAGE_TREE_PATH,     matchTreePathString->str,
+                              MODEL_MESSAGE_DIRECTORY,     currentWorkingDirectory,
+                              MODEL_MESSAGE_FILE_PATH,     filePathString->str,
+                              MODEL_MESSAGE_LINE_NUMBER,   lineNumber,
+                              MODEL_MESSAGE_COLUMN_NUMBER, columnNumber,
+                              MODEL_MESSAGE_MESSAGE,       executeCommandOutput->text->str,
+                              MODEL_END
+                             );
+
+                switch (regexType)
+                {
+                  case REGEX_TYPE_ERROR:
+                    // insert error message
+                    gtk_tree_store_insert_with_values(pluginData.build.errorsStore,
+                                                      &pluginData.build.insertIterator,
+                                                      NULL,  // parent
+                                                      -1,  // position
+                                                      MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
+                                                      MODEL_ERROR_WARNING_DIRECTORY,     currentWorkingDirectory,
+                                                      MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
+                                                      MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
+                                                      MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
+                                                      MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
+                                                      MODEL_END
+                                                     );
+
+                    // set indicator (if document is loaded)
+                    if (   pluginData.configuration.errorIndicators
+                        && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
+                       )
+                    {
+                      setIndicator(filePathString->str, lineNumber, &pluginData.configuration.errorIndicatorColor, ERROR_INDICATOR_INDEX);
+
+                      pluginData.build.errorWarningIndicatorsCount++;
+                    }
+
+                    // save last insert position
+                    pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.errorsStore;
+                    pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
+                    pluginData.build.lastErrorsWarningsInsertColor        = insertColor;
+                    break;
+                  case REGEX_TYPE_WARNING:
+                    // insert warning message
+                    gtk_tree_store_insert_with_values(pluginData.build.warningsStore,
+                                                      &pluginData.build.insertIterator,
+                                                      NULL,  // parent
+                                                      -1,  // position
+                                                      MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
+                                                      MODEL_ERROR_WARNING_DIRECTORY,     currentWorkingDirectory,
+                                                      MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
+                                                      MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
+                                                      MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
+                                                      MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
+                                                      MODEL_END
+                                                     );
+
+                    // set indicator (if document is loaded)
+                    if (   pluginData.configuration.warningIndicators
+                        && (pluginData.build.errorWarningIndicatorsCount < MAX_ERROR_WARNING_INDICATORS)
+                       )
+                    {
+                      setIndicator(filePathString->str, lineNumber, &pluginData.configuration.warningIndicatorColor, WARNING_INDICATOR_INDEX);
+
+                      pluginData.build.errorWarningIndicatorsCount++;
+                    }
+
+                    // save last insert position
+                    pluginData.build.lastErrorsWarningsInsertStore        = pluginData.build.warningsStore;
+                    pluginData.build.lastErrorsWarningsInsertTreeIterator = &pluginData.build.insertIterator;
+                    pluginData.build.lastErrorsWarningsInsertColor        = insertColor;
+                    break;
+                  case REGEX_TYPE_EXTENSION:
+                    // append to last error/warning message
+                    if (   (pluginData.build.lastErrorsWarningsInsertStore != NULL)
+                        && (pluginData.build.lastErrorsWarningsInsertTreeIterator != NULL)
+                       )
+                    {
+                      gtk_tree_store_insert_with_values(pluginData.build.lastErrorsWarningsInsertStore,
+                                                        NULL,
+                                                        pluginData.build.lastErrorsWarningsInsertTreeIterator,
+                                                        -1,  // position
+                                                        MODEL_ERROR_WARNING_TREE_PATH,     messageTreePath,
+                                                        MODEL_ERROR_WARNING_DIRECTORY,     currentWorkingDirectory,
+                                                        MODEL_ERROR_WARNING_FILE_PATH,     filePathString->str,
+                                                        MODEL_ERROR_WARNING_LINE_NUMBER,   lineNumber,
+                                                        MODEL_ERROR_WARNING_COLUMN_NUMBER, columnNumber,
+                                                        MODEL_ERROR_WARNING_MESSAGE,       messageString->str,
+                                                        MODEL_END
+                                                       );
+                    }
+                    break;
+                  default:
+                    HALT_INTERNAL_ERROR_UNHANDLED_SWITCH_CASE();
+                    break;
+                }
+
+                // free resources
+                g_free(messageTreePath);
+              }
+          }
+
+          // clear processed output text
+          g_string_truncate(executeCommandOutput->text, 0);
+      }
+
+      // free resources
+      g_free(currentWorkingDirectory);
+    }
 
 // TODO: msgwin_compiler_add(COLOR_BLUE, _("%s (in directory: %s)"), cmd, utf8_working_dir);
     showLastLine(GTK_SCROLLED_WINDOW(pluginData.widgets.messagesTab));
@@ -3776,8 +4041,6 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
     g_string_free(messageString, TRUE);
     g_string_free(filePathString, TRUE);
     g_string_free(matchTreePathString, TRUE);
-    g_free(absoluteDirectory);
-    g_free(messageTreePath);
 
     // update number of errors/warnings
     GString *string = g_string_new(NULL);
@@ -3831,16 +4094,12 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
   }
   else
   {
-    // set message in builder message tab
-    gtk_list_store_set(pluginData.build.messagesStore,
-                       &pluginData.build.messageTreeIterator,
-                       MODEL_MESSAGE_COLOR,         COLOR_BUILD_MESSAGES,
-                       MODEL_MESSAGE_MESSAGE,       line,
-                       MODEL_END
-                      );
-
-    // insert into geany message tab
-    msgwin_msg_add(COLOR_BLACK, -1, NULL, "%s", line);
+    // add message to builder message tab
+    appendMessage(COLOR_BUILD_MESSAGES,
+                  NULL,  // messageTreePath
+                  MODEL_MESSAGE_MESSAGE, line,
+                  MODEL_END
+                 );
   }
 }
 
@@ -3856,17 +4115,22 @@ LOCAL void onExecuteCommandParse(const gchar *workingDirectory,
 
 LOCAL void onExecuteCommandExit(gint status, void *userData)
 {
-  UNUSED_VARIABLE(userData);
+  g_assert(userData != NULL);
 
-  gchar *doneMessage = g_strdup_printf(_("Build done (exit code: %d)"), status);
-  gtk_list_store_insert_with_values(pluginData.build.messagesStore,
-                                    NULL,
-                                    -1,
-                                    MODEL_MESSAGE_COLOR,   COLOR_BUILD_INFO,
-                                    MODEL_MESSAGE_MESSAGE, doneMessage,
-                                    MODEL_END
-                                   );
-  g_free(doneMessage);
+  ExecuteCommandOutput *executeCommandOutput = (ExecuteCommandOutput*)userData;
+
+  // add final message to builder message tab
+  if (executeCommandOutput->text->len > 0)
+  {
+    appendMessage(COLOR_BUILD_MESSAGES,
+                  NULL,  // messageTreePath
+                  MODEL_MESSAGE_MESSAGE, executeCommandOutput->text->str,
+                  MODEL_END
+                 );
+  }
+
+  printMessage(_("Build done (exit code: %d)"), status);
+
   showLastLine(GTK_SCROLLED_WINDOW(pluginData.widgets.messagesTab));
 
   // initialise prev/next error/warning iterators
@@ -3895,6 +4159,9 @@ LOCAL void onExecuteCommandExit(gint status, void *userData)
   }
 
   setEnableToolbar(TRUE);
+
+  // free resources
+  g_free(executeCommandOutput);
 }
 
 /***********************************************************************\
@@ -3961,11 +4228,14 @@ LOCAL void executeCommand(const gchar *commandLineTemplate,
     gchar errorMessage[256];
     printMessage(_("Working directory: %s"), workingDirectory);
     printMessage(_("Build command line: %s"), commandLine);
+    ExecuteCommandOutput *executeCommandOutput = (ExecuteCommandOutput*)g_malloc(sizeof(ExecuteCommandOutput));
+    executeCommandOutput->parseOutput = parseOutput;
+    executeCommandOutput->text        = g_string_sized_new(8*1024);
     if (!Execute_asyncExecute(commandLine,
                               workingDirectory,
                               dockerContainerId,
-                              CALLBACK(onExecuteCommandParse,&parseOutput),
-                              CALLBACK(onExecuteCommandExit,NULL),
+                              CALLBACK(onExecuteCommandParse,executeCommandOutput),
+                              CALLBACK(onExecuteCommandExit,executeCommandOutput),
                               errorMessage,
                               sizeof(errorMessage)
                              )
@@ -4937,10 +5207,12 @@ LOCAL gboolean onMessageListButtonPress(GtkTreeView    *messageList,
 
   if      (eventButton->button == 1)
   {
+    // selected message
     g_idle_add(onMessageListSelectionChanged, messageList);
   }
   else if (eventButton->button == 3)
   {
+    // open content menu with selected message
     gtk_tree_path_free(pluginData.build.messagesTreePath);
     pluginData.build.messagesTreePath = gtk_tree_path_new();
     if (gtk_tree_view_get_path_at_pos(messageList,
@@ -5851,19 +6123,43 @@ LOCAL void onMessageListAddRegEx(GtkWidget      *widget,
                              )
      )
   {
+    // get matched regex, text
+    GString *text = g_string_sized_new(1024);
     gchar *message;
     gtk_tree_model_get(GTK_TREE_MODEL(pluginData.build.messagesStore),
                        &treeIterator,
-                       MODEL_MESSAGE_MESSAGE, &message,
+                       MODEL_MESSAGE_MESSAGE, &message,   // message line
                        MODEL_END
                       );
     g_assert(message != NULL);
-
-    addRegex(message);
-
+    g_string_append(text, message);
     g_free(message);
 
-    configurationSave();
+    // get text (max. 5 additional lines)
+    guint i = 0;
+    while (   (i < 5)
+           && gtk_tree_model_iter_next(GTK_TREE_MODEL(pluginData.build.messagesStore), &treeIterator)
+          )
+    {
+      gtk_tree_model_get(GTK_TREE_MODEL(pluginData.build.messagesStore),
+                         &treeIterator,
+                         MODEL_MESSAGE_MESSAGE, &message,   // message line
+                         MODEL_END
+                        );
+      g_assert(message != NULL);
+      g_string_append_c(text, '\n');
+      g_string_append(text, message);
+      g_free(message);
+
+      i++;
+    }
+
+    if (addRegex(text->str))
+    {
+      configurationSave();
+    }
+
+    g_string_free(text, TRUE);
   }
 }
 
@@ -5895,27 +6191,59 @@ LOCAL void onMessageListEditRegEx(GtkWidget      *widget,
      )
   {
     gchar *treePath;
+
+    // get matched regex, text
+    GString *text = g_string_sized_new(1024);
     gchar *message;
     gtk_tree_model_get(GTK_TREE_MODEL(pluginData.build.messagesStore),
                        &treeIterator,
-                       MODEL_MESSAGE_TREE_PATH, &treePath,
-                       MODEL_MESSAGE_MESSAGE,   &message,
+                       MODEL_MESSAGE_TREE_PATH, &treePath,  // matched regex tree path
+                       MODEL_MESSAGE_MESSAGE,   &message,   // message line
                        MODEL_END
                       );
     g_assert(treePath != NULL);
     g_assert(message != NULL);
+    g_string_append(text, message);
+    g_free(message);
 
+    // get text (max. 5 additional lines)
+    guint i = 0;
+    while (   (i < 5)
+           && gtk_tree_model_iter_next(GTK_TREE_MODEL(pluginData.build.messagesStore), &treeIterator)
+          )
+    {
+      gtk_tree_model_get(GTK_TREE_MODEL(pluginData.build.messagesStore),
+                         &treeIterator,
+                         MODEL_MESSAGE_MESSAGE, &message,   // message line
+                         MODEL_END
+                        );
+      g_assert(message != NULL);
+      g_string_append_c(text, '\n');
+      g_string_append(text, message);
+      g_free(message);
+
+      i++;
+    }
+
+    // get regex info which matched the message
     if (gtk_tree_model_get_iter_from_string(GTK_TREE_MODEL(pluginData.configuration.regexStore),
                                             &treeIterator,
                                             treePath
                                            )
        )
     {
-      editRegex(pluginData.configuration.regexStore, &treeIterator, message);
+      if (editRegex(pluginData.configuration.regexStore,
+                    &treeIterator,
+                    text->str
+                   )
+         )
+      {
+        configurationSave();
+      }
     }
 
-    g_free(message);
     g_free(treePath);
+    g_string_free(text, TRUE);
   }
 }
 
@@ -7681,14 +8009,14 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer userData)
 
   pluginData.build.lastCommandListStore             = NULL;
   pluginData.build.lastCommandIteratorString        = g_string_new(NULL);
-  pluginData.build.directoryPrefixStack             = string_stack_new();
+  pluginData.build.directoryPrefixStack             = stringStackNew();
   pluginData.build.messagesStore = gtk_list_store_new(MODEL_MESSAGE_COUNT,
                                                       G_TYPE_STRING,  // color
                                                       G_TYPE_STRING,  // tree path
                                                       G_TYPE_STRING,  // directory
                                                       G_TYPE_STRING,  // file path
-                                                      G_TYPE_INT,     // line
-                                                      G_TYPE_INT,     // column
+                                                      G_TYPE_UINT,    // line
+                                                      G_TYPE_UINT,    // column
                                                       G_TYPE_STRING   // message
                                                      );
   pluginData.build.messagesTreePath                 = NULL;
@@ -7696,16 +8024,16 @@ LOCAL gboolean init(GeanyPlugin *plugin, gpointer userData)
                                                     G_TYPE_STRING,  // tree path
                                                     G_TYPE_STRING,  // directory
                                                     G_TYPE_STRING,  // file path
-                                                    G_TYPE_INT,     // line
-                                                    G_TYPE_INT,     // column
+                                                    G_TYPE_UINT,    // line
+                                                    G_TYPE_UINT,    // column
                                                     G_TYPE_STRING   // message
                                                    );
   pluginData.build.warningsStore = gtk_tree_store_new(MODEL_ERROR_WARNING_COUNT,
                                                       G_TYPE_STRING, // tree path
                                                       G_TYPE_STRING, // directory
                                                       G_TYPE_STRING, // file path
-                                                      G_TYPE_INT,    // line
-                                                      G_TYPE_INT,    // column
+                                                      G_TYPE_UINT,   // line
+                                                      G_TYPE_UINT,   // column
                                                       G_TYPE_STRING  // message
                                                      );
   pluginData.build.errorsTreeIterorValid                = FALSE;
@@ -7761,7 +8089,7 @@ LOCAL void cleanup(GeanyPlugin *plugin, gpointer userData)
   doneToolbar(plugin);
 
   // free resources
-  string_stack_free(pluginData.build.directoryPrefixStack);
+  stringStackDelete(pluginData.build.directoryPrefixStack);
   g_string_free(pluginData.build.lastCommandIteratorString, TRUE);
   gtk_tree_path_free(pluginData.build.messagesTreePath);
   g_free((gchar*)pluginData.attachedDockerContainerId);
