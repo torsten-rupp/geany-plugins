@@ -27,9 +27,16 @@
 #define LOCAL_INLINE static inline
 #define UNUSED_VARIABLE(name) (void)name
 
-#define ARRAY_SIZE(array) (sizeof(array)/sizeof(array[0]))
+#define ARRAY_SIZE(array) (sizeof(array) / sizeof(array[0]))
 
 #define CALLBACK(function,userData) function, userData
+
+#define LAMBDA(functionReturnType, functionSignature, functionBody) \
+  ({ \
+    auto functionReturnType __closure__ functionSignature; \
+    functionReturnType __closure__ functionSignature functionBody \
+    __closure__; \
+  })
 
 // global Geany data
 extern GeanyPlugin *geany_plugin;

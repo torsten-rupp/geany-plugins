@@ -62,6 +62,8 @@ void __abort(const gchar *message)
   abort();
 }
 
+// ---------------------------------------------------------------------
+
 gchar *stringEscape(const gchar *string, const char *toEscape, char escapeChar)
 {
   GString *escapedString;
@@ -180,43 +182,50 @@ gchar **stringSplit(const gchar *string,
   }
 }
 
-gchar *getAbsolutePath(const gchar *directory,
-                       const gchar *filePath
+// ---------------------------------------------------------------------
+
+void stringListIterate(const GList *stringList,
+                       guint       offset,
+                       gint        length,
+                       GFunc       function,
+                       gpointer    userData
                       )
 {
-  g_assert(filePath != NULL);
+  g_assert(function != NULL);
 
-  gchar *absoluteFilePath;
-  if (g_path_is_absolute(filePath) || stringIsEmpty(directory))
+  const GList *node = g_list_nth((GList*)stringList, offset);
+  const GList *end  = (length >= 0) ? g_list_nth((GList*)stringList, offset + length) : NULL;
+
+  while (node != end)
   {
-    absoluteFilePath = g_strdup(filePath);
+    function(node->data, userData);
+    node = node->next;
   }
-  else
-  {
-    absoluteFilePath = g_strconcat(directory, G_DIR_SEPARATOR_S, filePath, NULL);
-  }
-
-  return absoluteFilePath;
 }
 
-StringStack *stringStackNew()
+GString *stringListToString(GString *string, const GList *stringList, const gchar *separator)
 {
-  return g_ptr_array_new_with_free_func(g_free);
+  g_assert(stringList != NULL);
+
+  if (string == NULL) string = g_string_sized_new(8*1024);
+  g_list_foreach((GList*)stringList,
+                 LAMBDA(void,(gpointer data, gpointer),
+                 {
+                   const gchar *line = (const gchar*)data;
+
+                   if ((separator != NULL) && (string->len > 0))
+                   {
+                     g_string_append(string, separator);
+                   }
+                   g_string_append(string, line);
+                 }),
+                 NULL
+                );
+
+  return string;
 }
 
-void stringStackDelete(StringStack *stringStack)
-{
-  g_assert(stringStack != NULL);
-
-  g_ptr_array_free(stringStack, TRUE);
-}
-
-void stringStackPush(StringStack *stringStack, const gchar *string)
-{
-  g_assert(stringStack != NULL);
-
-  g_ptr_array_add(stringStack, g_strdup(string));
-}
+// ----------------------------------------------------------------------
 
 void stringStackPop(StringStack *stringStack)
 {
@@ -227,13 +236,6 @@ void stringStackPop(StringStack *stringStack)
     // Note: strings will be freed via GDestroyNotify()
     g_ptr_array_set_size(stringStack, stringStack->len-1);
   }
-}
-
-void stringStackClear(StringStack *stringStack)
-{
-  g_assert(stringStack != NULL);
-
-  g_ptr_array_set_size(stringStack, 0);
 }
 
 gchar *stringStackPeek(StringStack *stringStack)
@@ -251,6 +253,27 @@ gchar *stringStackPeek(StringStack *stringStack)
   }
 
   return string;
+}
+
+// ----------------------------------------------------------------------
+
+gchar *getAbsolutePath(const gchar *directory,
+                       const gchar *filePath
+                      )
+{
+  g_assert(filePath != NULL);
+
+  gchar *absoluteFilePath;
+  if (g_path_is_absolute(filePath) || stringIsEmpty(directory))
+  {
+    absoluteFilePath = g_strdup(filePath);
+  }
+  else
+  {
+    absoluteFilePath = g_strconcat(directory, G_DIR_SEPARATOR_S, filePath, NULL);
+  }
+
+  return absoluteFilePath;
 }
 
 gchar *getAbsoluteDirectory(const gchar *directory,
@@ -457,7 +480,6 @@ GtkWidget *newLabel(GtkWidget   **widget,
                    )
 {
   GtkWidget *label = gtk_label_new(text);
-  gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
   gtk_widget_set_tooltip_text(label, tooltipText);
   //gtk_label_set_justify(GTK_LABEL(label), GTK_JUSTIFY_LEFT);
   gtk_widget_set_halign(label, GTK_ALIGN_START);
@@ -489,6 +511,7 @@ GtkWidget *newView(GtkWidget   **widget,
   g_assert(entry != NULL);
   gtk_widget_set_tooltip_text(entry, tooltipText);
   g_object_set(entry, "editable", FALSE, "can_focus", FALSE, NULL);
+  gtk_widget_set_sensitive(entry, FALSE);
   if (text != NULL)
   {
     gtk_entry_set_text(GTK_ENTRY(entry), text);

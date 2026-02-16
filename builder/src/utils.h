@@ -71,6 +71,8 @@ typedef GPtrArray StringStack;
 
 void __abort(const gchar *message);
 
+// ---------------------------------------------------------------------
+
 /***********************************************************************\
 * Name   : stringEquals
 * Purpose: compare if strings are equal
@@ -83,6 +85,25 @@ void __abort(const gchar *message);
 static INLINE gboolean stringEquals(const gchar *string1, const gchar *string2)
 {
   return (string1 == string2) || ((string1 != NULL) && (string2 != NULL) && (strcmp(string1,string2) == 0));
+}
+
+/***********************************************************************\
+* Name   : stringCompare
+* Purpose: compare strings
+* Input  : string1,string2 - strings
+* Output : -
+* Return : -1 iff string1 <  string2
+*           0 iff string1 == string2
+*           1 iff string2 >  string2
+* Notes  : -
+\***********************************************************************/
+
+static INLINE int stringCompare(const gchar *string1, const gchar *string2)
+{
+  if      ((string1 != NULL) && (string2 != NULL)) return strcmp(string1,string2);
+  else if ((string1 != NULL) && (string2 == NULL)) return -1;
+  else if ((string1 == NULL) && (string2 != NULL)) return  1;
+  else                                             return  0;
 }
 
 /***********************************************************************\
@@ -159,19 +180,92 @@ gchar **stringSplit(const gchar *string,
                     gint        maxTokens
                    );
 
+// ---------------------------------------------------------------------
+
 /***********************************************************************\
-* Name   : getAbsolutePath
-* Purpose: get absolute path from directory and file path
-* Input  : directory - directory (can be NULL)
-*          filePath  - file path
+* Name   : stringListClear
+* Purpose: clear string list
+* Input  : stringList - string list
 * Output : -
-* Return : absolute file path
+* Return : -
 * Notes  : -
 \***********************************************************************/
 
-gchar *getAbsolutePath(const gchar *directory,
-                       const gchar *filePath
+static INLINE void stringListClear(GList **stringList)
+{
+  g_assert(stringList != NULL);
+
+  g_list_free_full(g_steal_pointer(stringList), g_free);
+}
+
+/***********************************************************************\
+* Name   : stringAppend
+* Purpose: append string to string list
+* Input  : stringList - string list
+*          string     - string to append
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+static INLINE void stringAppend(GList **stringList, const gchar *string)
+{
+  g_assert(stringList != NULL);
+  g_assert(string != NULL);
+
+  (*stringList) = g_list_append(*stringList, strdup(string));
+}
+
+/***********************************************************************\
+* Name   : stringListLength
+* Purpose: get string list length
+* Input  : stringList - string list
+* Output : -
+* Return : length of string list
+* Notes  : -
+\***********************************************************************/
+
+static INLINE size_t stringListLength(const GList *stringList)
+{
+  g_assert(stringList != NULL);
+
+  return g_list_length((GList*)stringList);
+}
+
+/***********************************************************************\
+* Name   : stringListIterate
+* Purpose: string list iterate with offset+length
+* Input  : stringList - string list
+*          offset     - offset [0..n-1]
+*          length     - length or -1
+*          function   - function to call
+*          userData   - user data for function
+* Output : -
+* Return : -
+* Notes  : -
+\***********************************************************************/
+
+void stringListIterate(const GList *stringList,
+                       guint       offset,
+                       gint        length,
+                       GFunc       function,
+                       gpointer    userData
                       );
+
+/***********************************************************************\
+* Name   : stringListToString
+* Purpose: convert string list to string
+* Input  : string     - string variable (can be NULL)
+*          stringList - string list
+*          separator  - separator (can be NULL)
+* Output : -
+* Return : string
+* Notes  : -
+\***********************************************************************/
+
+GString *stringListToString(GString *string, const GList *stringList, const gchar *separator);
+
+// ---------------------------------------------------------------------
 
 /***********************************************************************\
 * Name   : stringStackNew
@@ -182,7 +276,10 @@ gchar *getAbsolutePath(const gchar *directory,
 * Notes  : -
 \***********************************************************************/
 
-StringStack *stringStackNew();
+static INLINE StringStack *stringStackNew()
+{
+  return g_ptr_array_new_with_free_func(g_free);
+}
 
 /***********************************************************************\
 * Name   : stringStackDelete
@@ -193,7 +290,12 @@ StringStack *stringStackNew();
 * Notes  : -
 \***********************************************************************/
 
-void stringStackDelete(StringStack *stringStack);
+static INLINE void stringStackDelete(StringStack *stringStack)
+{
+  g_assert(stringStack != NULL);
+
+  g_ptr_array_free(stringStack, TRUE);
+}
 
 /***********************************************************************\
 * Name   : stringStackPush
@@ -205,7 +307,12 @@ void stringStackDelete(StringStack *stringStack);
 * Notes  : -
 \***********************************************************************/
 
-void stringStackPush(StringStack *stringStack, const gchar *string);
+static INLINE void stringStackPush(StringStack *stringStack, const gchar *string)
+{
+  g_assert(stringStack != NULL);
+
+  g_ptr_array_add(stringStack, g_strdup(string));
+}
 
 /***********************************************************************\
 * Name   : stringStackPop
@@ -227,7 +334,12 @@ void stringStackPop(StringStack *stringStack);
 * Notes  : -
 \***********************************************************************/
 
-void stringStackClear(StringStack *stringStack);
+static INLINE void stringStackClear(StringStack *stringStack)
+{
+  g_assert(stringStack != NULL);
+
+  g_ptr_array_set_size(stringStack, 0);
+}
 
 /***********************************************************************\
 * Name   : stringStackPeek
@@ -239,6 +351,22 @@ void stringStackClear(StringStack *stringStack);
 \***********************************************************************/
 
 gchar *stringStackPeek(StringStack *stringStack);
+
+// ----------------------------------------------------------------------
+
+/***********************************************************************\
+* Name   : getAbsolutePath
+* Purpose: get absolute path from directory and file path
+* Input  : directory - directory (can be NULL)
+*          filePath  - file path
+* Output : -
+* Return : absolute file path
+* Notes  : -
+\***********************************************************************/
+
+gchar *getAbsolutePath(const gchar *directory,
+                       const gchar *filePath
+                      );
 
 /***********************************************************************\
 * Name   : getAbsoluteDirectory
